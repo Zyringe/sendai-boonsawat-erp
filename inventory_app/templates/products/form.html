@@ -1,0 +1,148 @@
+{% extends 'base.html' %}
+{% block title %}{% if action == 'new' %}เพิ่มสินค้า{% else %}แก้ไขสินค้า{% endif %} – ERP{% endblock %}
+{% block page_title %}{% if action == 'new' %}เพิ่มสินค้าใหม่{% else %}แก้ไขสินค้า{% endif %}{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('product_list') }}">สินค้า</a></li>
+    {% if action == 'edit' %}
+    <li class="breadcrumb-item"><a href="{{ url_for('product_detail', product_id=product_id) }}">{{ product.product_name }}</a></li>
+    {% endif %}
+    <li class="breadcrumb-item active">{% if action == 'new' %}เพิ่มใหม่{% else %}แก้ไข{% endif %}</li>
+  </ol>
+</nav>
+
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header">
+        <i class="bi bi-{% if action == 'new' %}plus-circle{% else %}pencil{% endif %} me-2 text-accent"></i>
+        {% if action == 'new' %}เพิ่มสินค้าใหม่{% else %}แก้ไขข้อมูลสินค้า{% endif %}
+      </div>
+      <div class="card-body">
+        <form method="post">
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label">SKU <span class="text-danger">*</span></label>
+              <input type="number" name="sku" class="form-control"
+                     value="{{ product.sku or '' }}" required min="1">
+            </div>
+            <div class="col-md-8">
+              <label class="form-label">ชื่อสินค้า <span class="text-danger">*</span></label>
+              <input type="text" name="product_name" class="form-control"
+                     value="{{ product.product_name or '' }}" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">หน่วย</label>
+              <input type="text" name="unit_type" class="form-control"
+                     value="{{ product.unit_type or 'ตัว' }}" placeholder="ตัว / แผง / ชิ้น">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">บรรจุ/ลัง</label>
+              <input type="number" name="units_per_carton" class="form-control"
+                     value="{{ product.units_per_carton or '' }}" min="1" placeholder="–">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">บรรจุ/กล่อง</label>
+              <input type="number" name="units_per_box" class="form-control"
+                     value="{{ product.units_per_box or '' }}" min="1" placeholder="–">
+            </div>
+
+            <div class="col-12"><hr class="my-1"></div>
+
+            <div class="col-md-4">
+              <label class="form-label">ต้นทุน (฿)</label>
+              <div class="input-group">
+                <span class="input-group-text">฿</span>
+                <input type="number" name="cost_price" class="form-control"
+                       value="{{ product.cost_price or '' }}" step="0.01" min="0" placeholder="0.00">
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">ราคาขาย (฿)</label>
+              <div class="input-group">
+                <span class="input-group-text">฿</span>
+                <input type="number" name="base_sell_price" class="form-control"
+                       value="{{ product.base_sell_price or '' }}" step="0.01" min="0" placeholder="0.00">
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">แจ้งเตือนสต็อก ≤</label>
+              <div class="input-group">
+                <input type="number" name="low_stock_threshold" class="form-control"
+                       value="{{ product.low_stock_threshold or 10 }}" min="0">
+                <span class="input-group-text">{{ product.unit_type or 'หน่วย' }}</span>
+              </div>
+            </div>
+            <div class="col-12">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="hard_to_sell"
+                       value="1" id="chkHard" {% if product.hard_to_sell %}checked{% endif %}>
+                <label class="form-check-label" for="chkHard">สินค้าขายยาก</label>
+              </div>
+            </div>
+
+            <div class="col-12"><hr class="my-1"></div>
+
+            <div class="col-md-6">
+              <label class="form-label"><i class="bi bi-bag me-1"></i>สต็อก Shopee</label>
+              <input type="number" name="shopee_stock" class="form-control"
+                     value="{{ product.shopee_stock or 0 }}" min="0">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label"><i class="bi bi-bag me-1"></i>สต็อก Lazada</label>
+              <input type="number" name="lazada_stock" class="form-control"
+                     value="{{ product.lazada_stock or 0 }}" min="0">
+            </div>
+          </div>
+
+            <div class="col-12"><hr class="my-1"></div>
+
+            <div class="col-12">
+              <label class="form-label">สถานที่เก็บ</label>
+              <div id="loc-list">
+                {% for loc in (locations or []) %}
+                <div class="input-group mb-1 loc-row">
+                  <input type="text" name="floor_no" class="form-control form-control-sm font-mono"
+                         value="{{ loc }}" placeholder="เช่น A-1, B-23">
+                  <button type="button" class="btn btn-sm btn-outline-danger"
+                          onclick="this.closest('.loc-row').remove()">
+                    <i class="bi bi-x"></i>
+                  </button>
+                </div>
+                {% endfor %}
+              </div>
+              <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="addLocRow()">
+                <i class="bi bi-plus me-1"></i>เพิ่มสถานที่
+              </button>
+            </div>
+          </div>
+
+          <hr class="mt-4">
+          <div class="d-flex gap-2 justify-content-end">
+            <a href="{{ url_for('product_list') }}" class="btn btn-outline-secondary">ยกเลิก</a>
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-check-circle me-1"></i>บันทึก
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function addLocRow() {
+  var list = document.getElementById('loc-list');
+  var div = document.createElement('div');
+  div.className = 'input-group mb-1 loc-row';
+  div.innerHTML = '<input type="text" name="floor_no" class="form-control form-control-sm font-mono" placeholder="เช่น A-1, B-23">' +
+    '<button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest(\'.loc-row\').remove()"><i class="bi bi-x"></i></button>';
+  list.appendChild(div);
+  div.querySelector('input').focus();
+}
+</script>
+{% endblock %}

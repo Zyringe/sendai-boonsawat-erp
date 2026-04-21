@@ -1,0 +1,106 @@
+{% from 'macros.html' import doc_link %}
+{% extends 'base.html' %}
+{% block title %}ยอดซื้อ – ERP{% endblock %}
+{% block page_title %}รายงานยอดซื้อ{% endblock %}
+
+{% block topbar_actions %}
+{% if pending_map > 0 %}
+<a href="{{ url_for('mapping') }}" class="btn btn-sm" style="background:#fef9c3;color:#92400e;border:none">
+  <i class="bi bi-tags me-1"></i>ผูกรหัส ({{ pending_map }})
+</a>
+{% endif %}
+<a href="{{ url_for('import_weekly') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-upload me-1"></i>นำเข้าไฟล์
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-md-2">
+        <label class="form-label small mb-1">ตั้งแต่วันที่</label>
+        <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from or '' }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small mb-1">ถึงวันที่</label>
+        <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to or '' }}">
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-primary btn-sm">กรอง</button>
+        <a href="{{ url_for('purchases_view') }}" class="btn btn-sm btn-outline-secondary ms-1">ล้าง</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span class="text-subtle small">พบ <strong class="text-main">{{ total | fmt_qty }}</strong> รายการ</span>
+    <span class="fw-600 text-accent">รวม: ฿{{ rows | sum(attribute='net') | fmt_price }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table mb-0">
+      <thead>
+        <tr>
+          <th>วันที่</th><th>เลขที่เอกสาร</th><th>สินค้า</th>
+          <th>ผู้จำหน่าย</th><th class="text-end">จำนวน</th>
+          <th class="text-end">ราคา/หน่วย</th><th class="text-end">ส่วนลด</th>
+          <th class="text-end">ยอดสุทธิ</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="font-mono text-subtle">{{ r.date_iso }}</td>
+          <td>{{ doc_link(r.doc_no) }}</td>
+          <td>
+            {% if r.product_id %}
+              <a href="{{ url_for('product_detail', product_id=r.product_id) }}"
+                 class="text-decoration-none text-main">{{ r.display_name }}</a>
+            {% else %}
+              <span class="text-warning small">
+                <i class="bi bi-exclamation-triangle me-1"></i>{{ r.display_name }}
+              </span>
+            {% endif %}
+          </td>
+          <td class="text-subtle small">{{ r.supplier or '–' }}</td>
+          <td class="text-end small">{{ r.qty | fmt_qty }} {{ r.unit }}</td>
+          <td class="text-end small">{{ r.unit_price | fmt_price }}</td>
+          <td class="text-end small text-danger">{{ r.discount or '–' }}</td>
+          <td class="text-end fw-600">{{ r.net | fmt_price }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-subtle py-5">ยังไม่มีข้อมูลการซื้อ</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if pages > 1 %}
+  <div class="card-footer">
+    <nav>
+      <ul class="pagination pagination-sm mb-0 justify-content-center flex-wrap">
+        {% set ns = namespace(prev=0) %}
+        <li class="page-item {% if page == 1 %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('purchases_view', page=page-1, date_from=date_from or '', date_to=date_to or '') }}">&laquo;</a>
+        </li>
+        {% for p in range(1, pages+1) %}
+          {% if p == 1 or p == pages or (p >= page-2 and p <= page+2) %}
+            {% if ns.prev and p - ns.prev > 1 %}
+            <li class="page-item disabled"><span class="page-link">…</span></li>
+            {% endif %}
+            <li class="page-item {% if p == page %}active{% endif %}">
+              <a class="page-link" href="{{ url_for('purchases_view', page=p, date_from=date_from or '', date_to=date_to or '') }}">{{ p }}</a>
+            </li>
+            {% set ns.prev = p %}
+          {% endif %}
+        {% endfor %}
+        <li class="page-item {% if page == pages %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('purchases_view', page=page+1, date_from=date_from or '', date_to=date_to or '') }}">&raquo;</a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

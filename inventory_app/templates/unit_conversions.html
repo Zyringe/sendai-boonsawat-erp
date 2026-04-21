@@ -1,0 +1,192 @@
+{% extends 'base.html' %}
+{% block title %}แปลงหน่วย BSN – ERP{% endblock %}
+{% block page_title %}กำหนดการแปลงหน่วย BSN{% endblock %}
+
+{% block content %}
+
+{# ── ส่วนที่รอกำหนด (pending) ───────────────────────────────────────────────── #}
+{% if not pending %}
+<div class="card mb-4">
+  <div class="card-body text-center py-4">
+    <div style="font-size:2rem">✅</div>
+    <div class="fw-600 mt-2">ไม่มีหน่วยที่รอการกำหนด</div>
+  </div>
+</div>
+{% else %}
+<div class="alert alert-info mb-3">
+  <i class="bi bi-info-circle me-2"></i>
+  พบสินค้าที่หน่วยใน BSN <strong>ไม่ตรง</strong>กับหน่วยในระบบ — กรุณากำหนดว่า 1 หน่วย BSN เท่ากับกี่หน่วยในระบบ
+</div>
+
+<form method="post" action="{{ url_for('unit_conversions_save') }}">
+  <div class="card mb-4">
+    <div class="table-responsive">
+      <table class="table mb-0">
+        <thead>
+          <tr>
+            <th>สินค้า</th>
+            <th class="text-center">หน่วยใน BSN</th>
+            <th class="text-center">หน่วยในระบบ</th>
+            <th class="text-center" style="width:100px">จำนวนแถว</th>
+            <th class="text-center" style="width:200px">1 หน่วย BSN = ? หน่วยระบบ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in pending %}
+          <tr>
+            <td class="fw-500">{{ p.product_name }}</td>
+            <td class="text-center"><span class="badge badge-warning font-mono">{{ p.bsn_unit }}</span></td>
+            <td class="text-center"><span class="badge badge-info">{{ p.unit_type }}</span></td>
+            <td class="text-center text-subtle">{{ p.row_count }}</td>
+            <td class="text-center">
+              <div class="input-group input-group-sm justify-content-center" style="max-width:160px;margin:auto">
+                <span class="input-group-text">1 {{ p.bsn_unit }} =</span>
+                <input type="number" step="0.01" min="0.01"
+                       name="ratio_{{ p.product_id }}_{{ p.bsn_unit }}"
+                       class="form-control text-center" value="1" required>
+                <span class="input-group-text">{{ p.unit_type }}</span>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="d-flex justify-content-end gap-2 mb-4">
+    <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">ข้ามไปก่อน</a>
+    {% if is_admin %}
+    <button type="submit" class="btn btn-primary">
+      <i class="bi bi-check-circle me-1"></i>บันทึกและ sync สต็อก
+    </button>
+    {% endif %}
+  </div>
+</form>
+{% endif %}
+
+{# ── ส่วนแก้ไข conversion ที่มีอยู่แล้ว ─────────────────────────────────────── #}
+<div class="card">
+  <div class="card-header d-flex align-items-center gap-3 flex-wrap">
+    <span class="fw-600">การแปลงหน่วยที่กำหนดไว้แล้ว</span>
+    {% if total is defined %}
+    <span class="text-subtle small">{{ total }} รายการ</span>
+    {% endif %}
+    <form method="get" action="{{ url_for('unit_conversions') }}" class="ms-auto d-flex gap-2">
+      <input type="search" name="q" value="{{ search }}" placeholder="ค้นหาชื่อสินค้า / SKU…"
+             class="form-control form-control-sm" style="width:220px">
+      <button class="btn btn-sm btn-outline-secondary" type="submit">ค้นหา</button>
+      {% if search %}
+      <a href="{{ url_for('unit_conversions') }}" class="btn btn-sm btn-outline-danger">ล้าง</a>
+      {% endif %}
+    </form>
+  </div>
+  <div class="table-responsive">
+    <table class="table mb-0 table-sm">
+      <thead>
+        <tr>
+          <th>SKU</th>
+          <th>ชื่อสินค้า</th>
+          <th class="text-center">หน่วย BSN</th>
+          <th class="text-center">หน่วยระบบ</th>
+          <th class="text-center" style="width:80px">แถว</th>
+          <th class="text-center" style="width:220px">Ratio ปัจจุบัน</th>
+          <th style="width:80px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for uc in existing %}
+        <tr id="row-{{ uc.id }}">
+          <td><span class="badge badge-gray">{{ uc.sku }}</span></td>
+          <td class="small">{{ uc.product_name }}</td>
+          <td class="text-center"><span class="badge badge-warning font-mono">{{ uc.bsn_unit }}</span></td>
+          <td class="text-center"><span class="badge badge-info">{{ uc.unit_type }}</span></td>
+          <td class="text-center text-subtle small">{{ uc.row_count }}</td>
+          <td class="text-center">
+            <span class="ratio-display" id="disp-{{ uc.id }}">
+              1 {{ uc.bsn_unit }} = <strong>{{ uc.ratio }}</strong> {{ uc.unit_type }}
+            </span>
+            <form class="ratio-form d-none" id="form-{{ uc.id }}"
+                  method="post" action="{{ url_for('unit_conversions_edit') }}">
+              <input type="hidden" name="product_id" value="{{ uc.product_id }}">
+              <input type="hidden" name="bsn_unit" value="{{ uc.bsn_unit }}">
+              <div class="input-group input-group-sm justify-content-center" style="max-width:170px;margin:auto">
+                <span class="input-group-text">1 {{ uc.bsn_unit }} =</span>
+                <input type="number" step="0.01" min="0.01" name="ratio"
+                       class="form-control text-center" value="{{ uc.ratio }}" required>
+                <span class="input-group-text">{{ uc.unit_type }}</span>
+              </div>
+            </form>
+          </td>
+          <td class="text-center">
+            <button type="button" class="btn btn-outline-secondary btn-xs" id="edit-btn-{{ uc.id }}"
+                    onclick="toggleEdit({{ uc.id }})">แก้ไข</button>
+            <button type="submit" form="form-{{ uc.id }}"
+                    class="btn btn-primary btn-xs d-none" id="save-btn-{{ uc.id }}"
+                    onclick="return confirm('ยืนยันการเปลี่ยน ratio? ระบบจะ re-sync stock ทันที')">บันทึก</button>
+          </td>
+        </tr>
+        {% endfor %}
+        {% if not existing %}
+        <tr><td colspan="7" class="text-center text-subtle py-4">ไม่พบรายการที่ตรงกับการค้นหา</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  {# Pagination #}
+  {% if pages > 1 %}
+  {% set p_start = [2, page-1]|max %}
+  {% set p_end   = [pages-1, page+1]|min %}
+  <div class="card-footer d-flex justify-content-between align-items-center">
+    <span class="text-subtle small">หน้า {{ page }} / {{ pages }}</span>
+    <nav>
+      <ul class="pagination pagination-sm mb-0">
+        {# ‹ prev #}
+        <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('unit_conversions', q=search, page=page-1) }}">‹</a>
+        </li>
+        {# หน้า 1 #}
+        <li class="page-item {% if page == 1 %}active{% endif %}">
+          <a class="page-link" href="{{ url_for('unit_conversions', q=search, page=1) }}">1</a>
+        </li>
+        {# ... ซ้าย #}
+        {% if p_start > 2 %}
+        <li class="page-item disabled"><span class="page-link">…</span></li>
+        {% endif %}
+        {# หน้ากลาง #}
+        {% for p in range(p_start, p_end+1) %}
+        <li class="page-item {% if p == page %}active{% endif %}">
+          <a class="page-link" href="{{ url_for('unit_conversions', q=search, page=p) }}">{{ p }}</a>
+        </li>
+        {% endfor %}
+        {# ... ขวา #}
+        {% if p_end < pages-1 %}
+        <li class="page-item disabled"><span class="page-link">…</span></li>
+        {% endif %}
+        {# หน้าสุดท้าย #}
+        {% if pages > 1 %}
+        <li class="page-item {% if page == pages %}active{% endif %}">
+          <a class="page-link" href="{{ url_for('unit_conversions', q=search, page=pages) }}">{{ pages }}</a>
+        </li>
+        {% endif %}
+        {# › next #}
+        <li class="page-item {% if page >= pages %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('unit_conversions', q=search, page=page+1) }}">›</a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+function toggleEdit(id) {
+  document.getElementById('disp-' + id).classList.toggle('d-none');
+  document.getElementById('form-' + id).classList.toggle('d-none');
+  document.getElementById('edit-btn-' + id).classList.toggle('d-none');
+  document.getElementById('save-btn-' + id).classList.toggle('d-none');
+}
+</script>
+
+{% endblock %}

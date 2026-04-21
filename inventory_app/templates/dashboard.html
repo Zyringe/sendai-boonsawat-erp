@@ -1,0 +1,138 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard – ERP{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-4">
+  <!-- Low stock -->
+  <div class="col-sm-6 col-xl-3">
+    <div class="stat-card">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-card-icon" style="background:#fee2e2">
+          <i class="bi bi-exclamation-triangle" style="color:#ef4444"></i>
+        </div>
+        <div>
+          <div class="stat-card-label">สต็อกต่ำกว่าเกณฑ์</div>
+          <div class="stat-card-value {% if low_stock_count > 0 %}text-danger{% else %}text-success{% endif %}">
+            {{ low_stock_count }}
+          </div>
+        </div>
+      </div>
+      <a href="{{ url_for('product_list', low_stock=1) }}"
+         class="btn btn-sm w-100 mt-3"
+         style="background:#fee2e2;color:#ef4444;border:none;font-weight:500">
+        ดูรายการ →
+      </a>
+    </div>
+  </div>
+
+  <!-- Today IN -->
+  <div class="col-sm-6 col-xl-3">
+    <div class="stat-card">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-card-icon" style="background:#dcfce7">
+          <i class="bi bi-arrow-down-circle" style="color:#22c55e"></i>
+        </div>
+        <div>
+          <div class="stat-card-label">รับเข้าล่าสุด</div>
+          <div class="stat-card-value text-success">
+            {{ recent_txns | selectattr('txn_type','eq','IN') | list | length }}
+          </div>
+        </div>
+      </div>
+      <a href="{{ url_for('transaction_history', type='IN') }}"
+         class="btn btn-sm w-100 mt-3"
+         style="background:#dcfce7;color:#16a34a;border:none;font-weight:500">
+        ดูประวัติ →
+      </a>
+    </div>
+  </div>
+
+  <!-- Today OUT -->
+  <div class="col-sm-6 col-xl-3">
+    <div class="stat-card">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-card-icon" style="background:#fef9c3">
+          <i class="bi bi-arrow-up-circle" style="color:#f59e0b"></i>
+        </div>
+        <div>
+          <div class="stat-card-label">จ่ายออกล่าสุด</div>
+          <div class="stat-card-value text-warning">
+            {{ recent_txns | selectattr('txn_type','eq','OUT') | list | length }}
+          </div>
+        </div>
+      </div>
+      <a href="{{ url_for('transaction_history', type='OUT') }}"
+         class="btn btn-sm w-100 mt-3"
+         style="background:#fef9c3;color:#92400e;border:none;font-weight:500">
+        ดูประวัติ →
+      </a>
+    </div>
+  </div>
+
+  <!-- Products -->
+  <div class="col-sm-6 col-xl-3">
+    <div class="stat-card">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-card-icon" style="background:#ede9fe">
+          <i class="bi bi-grid-3x3-gap" style="color:#7c3aed"></i>
+        </div>
+        <div>
+          <div class="stat-card-label">จัดการสินค้า</div>
+          <div class="stat-card-value" style="color:#7c3aed">—</div>
+        </div>
+      </div>
+      <a href="{{ url_for('product_list') }}"
+         class="btn btn-sm w-100 mt-3"
+         style="background:#ede9fe;color:#7c3aed;border:none;font-weight:500">
+        รายการสินค้า →
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- Recent transactions -->
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-clock-history me-2 text-accent"></i>รายการล่าสุด</span>
+    <a href="{{ url_for('transaction_history') }}" class="btn btn-xs" style="background:var(--accent-light);color:var(--accent);border:none">ดูทั้งหมด →</a>
+  </div>
+  <div class="table-responsive">
+    <table class="table mb-0">
+      <thead>
+        <tr>
+          <th>เวลา</th>
+          <th>SKU</th>
+          <th>ชื่อสินค้า</th>
+          <th class="text-center">ประเภท</th>
+          <th class="text-end">จำนวน</th>
+          <th>หมายเหตุ</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in recent_txns %}
+        <tr>
+          <td class="text-subtle font-mono">{{ t.created_at[:16] }}</td>
+          <td><span class="badge badge-gray">{{ t.sku }}</span></td>
+          <td>
+            <a href="{{ url_for('product_detail', product_id=t.product_id) }}"
+               class="text-decoration-none fw-500 text-main">{{ t.product_name }}</a>
+          </td>
+          <td class="text-center">
+            {% if t.txn_type == 'IN' %}<span class="badge badge-in">รับเข้า</span>
+            {% elif t.txn_type == 'OUT' %}<span class="badge badge-out">จ่ายออก</span>
+            {% else %}<span class="badge badge-adjust">ปรับยอด</span>{% endif %}
+          </td>
+          <td class="text-end fw-600 {% if t.quantity_change > 0 %}text-success{% else %}text-danger{% endif %}">
+            {% if t.quantity_change > 0 %}+{% endif %}{{ t.quantity_change | fmt_qty }} {{ t.unit_type }}
+          </td>
+          <td class="text-subtle">{{ t.note or '' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-subtle py-5">ยังไม่มีรายการ</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,360 @@
+{% from 'macros.html' import doc_link %}
+{% extends 'base.html' %}
+{% block title %}{{ product.product_name }} – ERP{% endblock %}
+{% block page_title %}{{ product.product_name }}{% endblock %}
+
+{% block topbar_actions %}
+{% if is_admin %}
+<a href="{{ url_for('product_edit', product_id=product.id) }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-pencil me-1"></i>แก้ไข
+</a>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('product_list') }}">สินค้า</a></li>
+    <li class="breadcrumb-item active">{{ product.product_name }}</li>
+  </ol>
+</nav>
+
+<div class="row g-3">
+  <!-- Left column -->
+  <div class="col-lg-4">
+
+    <!-- Stock card -->
+    <div class="card mb-3">
+      <div class="card-body text-center py-4">
+        <div class="mb-1 text-subtle small">สต็อกปัจจุบัน</div>
+        <div class="fw-700 mb-1 {% if product.is_low %}text-danger{% else %}text-success{% endif %}"
+             style="font-size:3rem;line-height:1">
+          {{ product.quantity | fmt_qty }}
+        </div>
+        <div class="text-subtle">{{ product.unit_type }}</div>
+        {% if product.is_low %}
+        <div class="alert alert-danger py-1 mt-2 mb-0 small">
+          <i class="bi bi-exclamation-triangle me-1"></i>ต่ำกว่าเกณฑ์ ({{ product.low_stock_threshold }})
+        </div>
+        {% endif %}
+
+        {# ── Online platform stock ── #}
+        <div class="d-flex gap-2 mt-3">
+          <div class="flex-fill rounded-2 py-2 px-3 text-start"
+               style="background:#fff7ed;border:1px solid #fed7aa">
+            <div class="small fw-600" style="color:#ea580c">
+              <i class="bi bi-bag-fill me-1"></i>Shopee
+            </div>
+            <div class="fw-700 mt-1" style="color:#c2410c;font-size:1.4rem;line-height:1">
+              {{ product.shopee_stock | fmt_qty }}
+            </div>
+            <div class="text-subtle" style="font-size:.75rem">{{ product.unit_type }}</div>
+          </div>
+          <div class="flex-fill rounded-2 py-2 px-3 text-start"
+               style="background:#eff6ff;border:1px solid #bfdbfe">
+            <div class="small fw-600" style="color:#2563eb">
+              <i class="bi bi-cart-fill me-1"></i>Lazada
+            </div>
+            <div class="fw-700 mt-1" style="color:#1d4ed8;font-size:1.4rem;line-height:1">
+              {{ product.lazada_stock | fmt_qty }}
+            </div>
+            <div class="text-subtle" style="font-size:.75rem">{{ product.unit_type }}</div>
+          </div>
+        </div>
+      </div>
+
+      {% if is_admin %}
+      <div class="card-footer d-flex gap-2">
+        <a href="{{ url_for('stock_in', product_id=product.id) }}"
+           class="btn btn-sm flex-fill fw-500"
+           style="background:#dcfce7;color:#16a34a;border:none">
+          <i class="bi bi-arrow-down-circle me-1"></i>รับเข้า
+        </a>
+        <a href="{{ url_for('stock_out', product_id=product.id) }}"
+           class="btn btn-sm flex-fill fw-500"
+           style="background:#fee2e2;color:#ef4444;border:none">
+          <i class="bi bi-arrow-up-circle me-1"></i>จ่ายออก
+        </a>
+        <a href="{{ url_for('stock_adjust', product_id=product.id) }}"
+           class="btn btn-sm flex-fill fw-500"
+           style="background:#f1f5f9;color:#475569;border:none">
+          <i class="bi bi-sliders me-1"></i>ปรับ
+        </a>
+      </div>
+
+      {# ── Online stock edit tabs ── #}
+      <div class="card-footer pt-0 border-top-0">
+        <div class="d-flex gap-1 mb-2">
+          <button class="btn btn-sm fw-600 flex-fill online-tab active"
+                  data-platform="shopee"
+                  style="background:#fff7ed;color:#ea580c;border:1px solid #fed7aa"
+                  onclick="switchOnlineTab('shopee', this)">
+            <i class="bi bi-bag-fill me-1"></i>Shopee
+          </button>
+          <button class="btn btn-sm fw-600 flex-fill online-tab"
+                  data-platform="lazada"
+                  style="background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0"
+                  onclick="switchOnlineTab('lazada', this)">
+            <i class="bi bi-cart-fill me-1"></i>Lazada
+          </button>
+        </div>
+        <form method="post"
+              action="{{ url_for('product_online_stock', product_id=product.id) }}"
+              class="d-flex gap-2 align-items-center">
+          <input type="hidden" name="platform" id="onlinePlatform" value="shopee">
+          <input type="number" name="quantity" id="onlineQty" step="0.5" min="0"
+                 value="{{ product.shopee_stock }}"
+                 class="form-control form-control-sm"
+                 style="border-color:#fed7aa">
+          <button type="submit" class="btn btn-sm fw-600 px-3" id="onlineConfirmBtn"
+                  style="background:#ea580c;color:#fff;border:none;white-space:nowrap">
+            ยืนยัน
+          </button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Info card -->
+    <div class="card mb-3">
+      <div class="card-header"><i class="bi bi-tag me-2 text-accent"></i>ข้อมูลสินค้า</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <tbody>
+            <tr><td class="text-subtle" style="width:45%">SKU</td>
+                <td><span class="badge badge-gray font-mono">{{ product.sku }}</span></td></tr>
+            <tr><td class="text-subtle">หน่วย</td><td>{{ product.unit_type }}</td></tr>
+            <tr><td class="text-subtle">บรรจุ/ลัง</td><td>{{ product.units_per_carton or '–' }}</td></tr>
+            <tr><td class="text-subtle">บรรจุ/กล่อง</td><td>{{ product.units_per_box or '–' }}</td></tr>
+            <tr><td class="text-subtle">ขายยาก</td>
+                <td>{% if product.hard_to_sell %}<span class="badge badge-warning">ใช่</span>{% else %}–{% endif %}</td></tr>
+            {% if is_manager %}
+            <tr><td class="text-subtle">ต้นทุน</td><td class="fw-500">฿{{ product.cost_price | fmt_price }}</td></tr>
+            {% endif %}
+            <tr>
+              <td class="text-subtle">ราคาขายปกติ</td>
+              <td class="fw-500">
+                {% if bsn_pricing.avg_list_price %}
+                <a href="{{ url_for('product_pricing', product_id=product.id) }}" class="text-decoration-none">
+                  ฿{{ bsn_pricing.avg_list_price | fmt_price }}
+                  {% if bsn_pricing.price_variants > 1 %}
+                  <span class="text-subtle small">({{ bsn_pricing.price_variants }} แบบ)</span>
+                  {% endif %}
+                  <i class="bi bi-arrow-right-short"></i>
+                </a>
+                {% else %}–{% endif %}
+              </td>
+            </tr>
+            <tr>
+              <td class="text-subtle">ราคาขายจริง</td>
+              <td class="fw-700 text-accent" style="font-size:1.05rem">
+                {% if bsn_pricing.avg_effective %}
+                <a href="{{ url_for('product_pricing', product_id=product.id) }}" class="text-decoration-none text-accent">
+                  ฿{{ bsn_pricing.avg_effective | fmt_price }}
+                  <i class="bi bi-arrow-right-short"></i>
+                </a>
+                {% else %}–{% endif %}
+              </td>
+            </tr>
+            {% if active_promo %}
+            <tr><td class="text-subtle">โปรโมชัน</td>
+                <td><span class="badge badge-danger">{{ active_promo.promo_name }}</span>
+                  {% if active_promo.promo_type == 'percent' %}
+                  <small class="text-subtle ms-1">-{{ active_promo.discount_value }}%</small>
+                  {% endif %}
+                </td></tr>
+            {% endif %}
+            <tr><td class="text-subtle">แจ้งเตือนที่</td><td>{{ product.low_stock_threshold | fmt_qty }} {{ product.unit_type }}</td></tr>
+            <tr>
+              <td class="text-subtle">สถานที่เก็บ</td>
+              <td>
+                {% if locations %}
+                  {% for loc in locations %}
+                    <span class="badge badge-gray font-mono me-1">{{ loc }}</span>
+                  {% endfor %}
+                {% else %}
+                  <span class="text-subtle">–</span>
+                {% endif %}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {% if is_admin %}
+    <form method="post" action="{{ url_for('product_deactivate', product_id=product.id) }}"
+          onsubmit="return confirm('ปิดใช้งานสินค้านี้?')">
+      <button type="submit" class="btn btn-sm w-100" style="background:#fee2e2;color:#ef4444;border:none">
+        <i class="bi bi-trash me-1"></i>ปิดใช้งานสินค้า
+      </button>
+    </form>
+    {% endif %}
+  </div>
+
+  <!-- Right column -->
+  <div class="col-lg-8">
+
+    <!-- Promotions -->
+    <div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-percent me-2 text-accent"></i>โปรโมชัน</span>
+        {% if is_admin %}
+        <a href="{{ url_for('promotion_new', product_id=product.id) }}"
+           class="btn btn-xs" style="background:var(--accent);color:#fff;border:none">
+          <i class="bi bi-plus me-1"></i>เพิ่ม
+        </a>
+        {% endif %}
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm mb-0">
+          <thead>
+            <tr>
+              <th>ชื่อโปรโมชัน</th><th class="text-center">ประเภท</th>
+              <th class="text-end">มูลค่า</th><th>ช่วงเวลา</th>
+              <th class="text-center">สถานะ</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for promo in promotions %}
+            <tr>
+              <td class="fw-500">{{ promo.promo_name }}</td>
+              <td class="text-center">
+                {% if promo.promo_type == 'percent' %}
+                  <span class="badge badge-info">% ส่วนลด</span>
+                {% else %}
+                  <span class="badge badge-purple">ราคาตายตัว</span>
+                {% endif %}
+              </td>
+              <td class="text-end">
+                {% if promo.promo_type == 'percent' %}{{ promo.discount_value }}%
+                {% else %}฿{{ promo.discount_value | fmt_price }}{% endif %}
+              </td>
+              <td class="text-subtle small">{{ promo.date_start or '∞' }} – {{ promo.date_end or '∞' }}</td>
+              <td class="text-center">
+                {% if promo.is_active %}<span class="badge badge-success">ใช้งาน</span>
+                {% else %}<span class="badge badge-gray">ปิด</span>{% endif %}
+              </td>
+              <td>
+                {% if is_admin and promo.is_active %}
+                <form method="post" action="{{ url_for('promotion_deactivate', promo_id=promo.id) }}"
+                      onsubmit="return confirm('ยกเลิกโปรโมชันนี้?')">
+                  <button type="submit" class="btn btn-xs"
+                          style="background:#fee2e2;color:#ef4444;border:none">ยกเลิก</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="text-center text-subtle py-3">ยังไม่มีโปรโมชัน</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Transaction history -->
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-clock-history me-2 text-accent"></i>ประวัติสต็อก
+          <span class="text-subtle small ms-1">({{ txn_total | fmt_qty }} รายการ)</span>
+        </span>
+        <a href="{{ url_for('transaction_history', product_id=product.id) }}"
+           class="btn btn-xs" style="background:#f1f5f9;color:#475569;border:none">ดูทั้งหมด →</a>
+        <a href="{{ url_for('sales_view', product_id=product.id) }}"
+           class="btn btn-xs ms-1" style="background:#f0fdf4;color:#166534;border:none">ประวัติขาย BSN →</a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm mb-0">
+          <thead>
+            <tr>
+              <th>วันที่/เวลา</th><th class="text-center">ประเภท</th>
+              <th class="text-end">จำนวน</th><th>อ้างอิง</th><th>หมายเหตุ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in txns %}
+            <tr>
+              <td class="font-mono text-subtle">{{ t.created_at[:16] }}</td>
+              <td class="text-center">
+                {% if t.txn_type == 'IN' %}<span class="badge badge-in">รับเข้า</span>
+                {% elif t.txn_type == 'OUT' %}<span class="badge badge-out">จ่ายออก</span>
+                {% else %}<span class="badge badge-adjust">ปรับยอด</span>{% endif %}
+              </td>
+              <td class="text-end fw-600 {% if t.quantity_change > 0 %}text-success{% else %}text-danger{% endif %}">
+                {% if t.quantity_change > 0 %}+{% endif %}{{ t.quantity_change | fmt_qty }}
+              </td>
+              <td>{{ doc_link(t.reference_no) }}</td>
+              <td class="text-subtle small">{{ t.note or '' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-center text-subtle py-3">ยังไม่มีรายการ</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if txn_pages > 1 %}
+      <div class="card-footer">
+        <nav>
+          <ul class="pagination pagination-sm mb-0 justify-content-center flex-wrap">
+            {% set ns = namespace(prev=0) %}
+            <li class="page-item {% if txn_page == 1 %}disabled{% endif %}">
+              <a class="page-link" href="{{ url_for('product_detail', product_id=product.id, txn_page=txn_page-1) }}">&laquo;</a>
+            </li>
+            {% for p in range(1, txn_pages+1) %}
+              {% if p == 1 or p == txn_pages or (p >= txn_page-2 and p <= txn_page+2) %}
+                {% if ns.prev and p - ns.prev > 1 %}
+                <li class="page-item disabled"><span class="page-link">…</span></li>
+                {% endif %}
+                <li class="page-item {% if p == txn_page %}active{% endif %}">
+                  <a class="page-link" href="{{ url_for('product_detail', product_id=product.id, txn_page=p) }}">{{ p }}</a>
+                </li>
+                {% set ns.prev = p %}
+              {% endif %}
+            {% endfor %}
+            <li class="page-item {% if txn_page == txn_pages %}disabled{% endif %}">
+              <a class="page-link" href="{{ url_for('product_detail', product_id=product.id, txn_page=txn_page+1) }}">&raquo;</a>
+            </li>
+          </ul>
+        </nav>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const shopeeStock = {{ product.shopee_stock }};
+const lazadaStock = {{ product.lazada_stock }};
+
+function switchOnlineTab(platform, btn) {
+  document.querySelectorAll('.online-tab').forEach(b => {
+    b.style.background = '#f1f5f9';
+    b.style.color      = '#64748b';
+    b.style.border     = '1px solid #e2e8f0';
+  });
+
+  const inp        = document.getElementById('onlineQty');
+  const confirmBtn = document.getElementById('onlineConfirmBtn');
+  document.getElementById('onlinePlatform').value = platform;
+
+  if (platform === 'shopee') {
+    btn.style.background  = '#fff7ed';
+    btn.style.color       = '#ea580c';
+    btn.style.border      = '1px solid #fed7aa';
+    inp.style.borderColor = '#fed7aa';
+    inp.value             = shopeeStock;
+    confirmBtn.style.background = '#ea580c';
+  } else {
+    btn.style.background  = '#eff6ff';
+    btn.style.color       = '#2563eb';
+    btn.style.border      = '1px solid #bfdbfe';
+    inp.style.borderColor = '#bfdbfe';
+    inp.value             = lazadaStock;
+    confirmBtn.style.background = '#2563eb';
+  }
+}
+</script>
+{% endblock %}

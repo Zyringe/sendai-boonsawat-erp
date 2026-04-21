@@ -1,0 +1,220 @@
+{% extends 'base.html' %}
+{% block title %}{{ product.product_name }} – ราคาขาย{% endblock %}
+{% block page_title %}ราคาขาย: {{ product.product_name }}{% endblock %}
+
+{% block content %}
+
+{# ── Breadcrumb ──────────────────────────────────────────────────────────── #}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('product_list') }}">สินค้า</a></li>
+    <li class="breadcrumb-item">
+      <a href="{{ url_for('product_detail', product_id=product.id) }}">{{ product.product_name }}</a>
+    </li>
+    <li class="breadcrumb-item active" aria-current="page">ราคาขาย</li>
+  </ol>
+</nav>
+
+{# ── Summary bar ─────────────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+  <div class="col-sm-6 col-xl-3">
+    <div class="stat-card">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-card-icon" style="background:#fef9c3">
+          <i class="bi bi-tag" style="color:#ca8a04"></i>
+        </div>
+        <div>
+          <div class="stat-card-label">ราคาตั้งเฉลี่ย</div>
+          <div class="stat-card-value">฿{{ pricing.avg_list_price | fmt_price }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="stat-card">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-card-icon" style="background:#dcfce7">
+          <i class="bi bi-cash-coin" style="color:#16a34a"></i>
+        </div>
+        <div>
+          <div class="stat-card-label">ราคาจริงเฉลี่ย</div>
+          <div class="stat-card-value text-success">฿{{ pricing.avg_effective | fmt_price }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="stat-card">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-card-icon" style="background:#e0f2fe">
+          <i class="bi bi-receipt" style="color:#0284c7"></i>
+        </div>
+        <div>
+          <div class="stat-card-label">บิลทั้งหมด</div>
+          <div class="stat-card-value">{{ pricing.total_invoices }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="stat-card">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-card-icon" style="background:#f3e8ff">
+          <i class="bi bi-box-seam" style="color:#7c3aed"></i>
+        </div>
+        <div>
+          <div class="stat-card-label">ปริมาณรวม</div>
+          <div class="stat-card-value">{{ pricing.total_qty | fmt_qty }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if not pricing.list_prices %}
+<div class="alert alert-secondary">ยังไม่มีข้อมูลการขายสินค้านี้</div>
+{% else %}
+
+{# ── Section 1: ราคาตั้ง ─────────────────────────────────────────────────── #}
+<div class="card mb-4">
+  <div class="card-header d-flex align-items-center gap-2">
+    <i class="bi bi-tag"></i>
+    <span class="fw-600">ราคาตั้ง (ก่อนลดราคา)</span>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0 align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>ราคาตั้ง</th>
+            <th>VAT</th>
+            <th class="text-end">จำนวนบิล</th>
+            <th class="text-end">ปริมาณรวม</th>
+            <th>ล่าสุด</th>
+            <th>ร้านค้า</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for lp in pricing.list_prices %}
+          {% set loop_idx = loop.index %}
+          <tr>
+            <td class="fw-600">฿{{ lp.unit_price | fmt_price }}</td>
+            <td>
+              {% if lp.vat_type == 1 %}
+                <span class="badge badge-success">รวม VAT</span>
+              {% elif lp.vat_type == 2 %}
+                <span class="badge badge-info">แยก VAT</span>
+              {% else %}
+                <span class="badge badge-gray">ยกเว้น VAT</span>
+              {% endif %}
+            </td>
+            <td class="text-end">{{ lp.invoice_count }}</td>
+            <td class="text-end">{{ lp.total_qty | fmt_qty }}</td>
+            <td class="text-subtle">{{ lp.last_sale or '–' }}</td>
+            <td>
+              {% if lp.customer_count == 1 %}
+                <span class="text-subtle">{{ lp.customers[0].customer if lp.customers else '–' }}</span>
+              {% else %}
+                <span class="text-subtle me-1">{{ lp.customer_count }} ร้าน</span>
+                <button class="btn btn-xs btn-outline-secondary py-0 px-1"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#cust-{{ loop_idx }}"
+                        aria-expanded="false">
+                  <i class="bi bi-chevron-down" style="font-size:.7rem"></i>
+                </button>
+              {% endif %}
+            </td>
+          </tr>
+          {% if lp.customers and lp.customer_count > 1 %}
+          <tr class="collapse" id="cust-{{ loop_idx }}">
+            <td colspan="6" class="p-0 ps-4">
+              <table class="table table-sm table-borderless mb-0 bg-light">
+                <thead>
+                  <tr class="text-subtle small">
+                    <th>ร้านค้า</th>
+                    <th>รหัส</th>
+                    <th class="text-end">บิล</th>
+                    <th class="text-end">ปริมาณ</th>
+                    <th>ส่วนลดที่ใช้</th>
+                    <th>ล่าสุด</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for c in lp.customers %}
+                  <tr>
+                    <td>{{ c.customer or '–' }}</td>
+                    <td class="text-subtle">{{ c.customer_code or '–' }}</td>
+                    <td class="text-end">{{ c.invoice_count }}</td>
+                    <td class="text-end">{{ c.total_qty | fmt_qty }}</td>
+                    <td class="text-subtle">{{ c.discounts or '–' }}</td>
+                    <td class="text-subtle">{{ c.last_sale or '–' }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </td>
+          </tr>
+          {% elif lp.customers and lp.customer_count == 1 %}
+          {# single customer — show discounts inline if any #}
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{# ── Section 2: ราคาจริงต่อร้าน ─────────────────────────────────────────── #}
+{% if pricing.effective_per_customer %}
+<div class="card mb-4">
+  <div class="card-header d-flex align-items-center gap-2">
+    <i class="bi bi-cash-coin"></i>
+    <span class="fw-600">ราคาจริงเฉลี่ย (หลังลด + VAT)</span>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0 align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>ร้านค้า</th>
+            <th>รหัส</th>
+            <th class="text-end">ราคาจริงเฉลี่ย</th>
+            <th class="text-end">บิล</th>
+            <th class="text-end">ปริมาณรวม</th>
+            <th>ล่าสุด</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set avg_eff = pricing.avg_effective %}
+          {% for ec in pricing.effective_per_customer %}
+          {% set diff_pct = ((ec.avg_effective - avg_eff) / avg_eff * 100) if avg_eff else 0 %}
+          <tr>
+            <td class="fw-500">{{ ec.customer or '–' }}</td>
+            <td class="text-subtle">{{ ec.customer_code or '–' }}</td>
+            <td class="text-end">
+              {% if diff_pct > 2 %}
+                <span class="text-success fw-600">฿{{ ec.avg_effective | fmt_price }}</span>
+                <small class="text-success ms-1">+{{ diff_pct | round(1) }}%</small>
+              {% elif diff_pct < -2 %}
+                <span class="text-warning fw-600">฿{{ ec.avg_effective | fmt_price }}</span>
+                <small class="text-warning ms-1">{{ diff_pct | round(1) }}%</small>
+              {% else %}
+                <span class="fw-500">฿{{ ec.avg_effective | fmt_price }}</span>
+              {% endif %}
+            </td>
+            <td class="text-end">{{ ec.invoice_count }}</td>
+            <td class="text-end">{{ ec.total_qty | fmt_qty }}</td>
+            <td class="text-subtle">{{ ec.last_sale or '–' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endif %}{# end if list_prices #}
+
+{% endblock %}

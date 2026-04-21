@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+inventory_app/instance/
+inventory_app/imports/
+.env
+data/exports/
+data/source/
+*.db
+*.db-shm
+*.db-wal

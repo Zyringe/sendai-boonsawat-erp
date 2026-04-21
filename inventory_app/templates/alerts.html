@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block title %}แจ้งเตือน – ERP{% endblock %}
+{% block page_title %}แจ้งเตือน{% endblock %}
+
+{% block content %}
+<div class="mb-3 d-flex align-items-center gap-2">
+  <i class="bi bi-exclamation-triangle-fill text-warning" style="font-size:1.3rem"></i>
+  <span class="fw-600">พบ <strong class="text-danger">{{ alerts | length }}</strong> รายการที่ต้องแก้ไข</span>
+</div>
+
+{% if alerts %}
+<!-- Shopee + Lazada เกิน warehouse -->
+<div class="card mb-4">
+  <div class="card-header d-flex align-items-center gap-2">
+    <i class="bi bi-bag-x-fill text-danger"></i>
+    <span class="fw-600">สต็อก Online เกินสต็อกคลัง</span>
+    <span class="badge badge-danger ms-1">{{ alerts | length }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm mb-0">
+      <thead>
+        <tr>
+          <th style="width:70px">SKU</th>
+          <th>ชื่อสินค้า</th>
+          <th class="text-end">คลัง</th>
+          <th class="text-end">Shopee</th>
+          <th class="text-end">Lazada</th>
+          <th class="text-end">Online รวม</th>
+          <th class="text-end text-danger">เกิน</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in alerts %}
+        <tr>
+          <td><span class="badge badge-gray font-mono">{{ a.sku }}</span></td>
+          <td>
+            <a href="{{ url_for('product_detail', product_id=a.id) }}"
+               class="text-decoration-none fw-500 text-main">{{ a.product_name }}</a>
+          </td>
+          <td class="text-end fw-600">{{ a.quantity | fmt_qty }} <span class="text-subtle small">{{ a.unit_type }}</span></td>
+          <td class="text-end">{{ a.shopee_stock | fmt_qty }}</td>
+          <td class="text-end">{{ a.lazada_stock | fmt_qty }}</td>
+          <td class="text-end fw-600">{{ a.online_total | fmt_qty }}</td>
+          <td class="text-end fw-700 text-danger">+{{ a.excess | fmt_qty }}</td>
+          <td>
+            {% if is_admin %}
+            <a href="{{ url_for('product_edit', product_id=a.id) }}"
+               class="btn btn-xs" style="background:#f1f5f9;color:#475569;border:none" title="แก้ไข">
+              <i class="bi bi-pencil"></i>
+            </a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% else %}
+<div class="card">
+  <div class="card-body text-center py-5 text-subtle">
+    <i class="bi bi-check-circle-fill text-success" style="font-size:2.5rem"></i>
+    <div class="mt-2 fw-500">ไม่มีการแจ้งเตือน</div>
+    <div class="small mt-1">สต็อก Shopee + Lazada ไม่เกินสต็อกคลังทุกรายการ</div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

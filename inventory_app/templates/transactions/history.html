@@ -1,0 +1,102 @@
+{% from 'macros.html' import doc_link %}
+{% extends 'base.html' %}
+{% block title %}ประวัติสต็อก – ERP{% endblock %}
+{% block page_title %}ประวัติสต็อก{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-md-2">
+        <label class="form-label small mb-1">ประเภท</label>
+        <select name="type" class="form-select form-select-sm">
+          <option value="">ทั้งหมด</option>
+          <option value="IN"     {% if txn_type == 'IN' %}selected{% endif %}>รับเข้า</option>
+          <option value="OUT"    {% if txn_type == 'OUT' %}selected{% endif %}>จ่ายออก</option>
+          <option value="ADJUST" {% if txn_type == 'ADJUST' %}selected{% endif %}>ปรับยอด</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small mb-1">ตั้งแต่วันที่</label>
+        <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from or '' }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small mb-1">ถึงวันที่</label>
+        <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to or '' }}">
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-primary btn-sm">กรอง</button>
+        <a href="{{ url_for('transaction_history') }}" class="btn btn-sm btn-outline-secondary ms-1">ล้าง</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="text-subtle small">พบ <strong class="text-main">{{ total | fmt_qty }}</strong> รายการ</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table mb-0">
+      <thead>
+        <tr>
+          <th>วันที่/เวลา</th><th>SKU</th><th>ชื่อสินค้า</th>
+          <th class="text-center">ประเภท</th><th class="text-end">จำนวน</th>
+          <th>หน่วย</th><th>เลขที่เอกสาร</th><th>หมายเหตุ</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in txns %}
+        <tr>
+          <td class="font-mono text-subtle">{{ t.created_at[:16] }}</td>
+          <td><span class="badge badge-gray">{{ t.sku }}</span></td>
+          <td>
+            <a href="{{ url_for('product_detail', product_id=t.product_id) }}"
+               class="text-decoration-none text-main">{{ t.product_name }}</a>
+          </td>
+          <td class="text-center">
+            {% if t.txn_type == 'IN' %}<span class="badge badge-in">รับเข้า</span>
+            {% elif t.txn_type == 'OUT' %}<span class="badge badge-out">จ่ายออก</span>
+            {% else %}<span class="badge badge-adjust">ปรับยอด</span>{% endif %}
+          </td>
+          <td class="text-end fw-600 {% if t.quantity_change > 0 %}text-success{% else %}text-danger{% endif %}">
+            {% if t.quantity_change > 0 %}+{% endif %}{{ t.quantity_change | fmt_qty }}
+          </td>
+          <td class="text-subtle small">{{ t.unit_type }}</td>
+          <td>{{ doc_link(t.reference_no) }}</td>
+          <td class="text-subtle small">{{ t.note or '' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-subtle py-5">ไม่พบรายการ</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if pages > 1 %}
+  <div class="card-footer">
+    <nav>
+      <ul class="pagination pagination-sm mb-0 justify-content-center flex-wrap">
+        {% set ns = namespace(prev=0) %}
+        <li class="page-item {% if page == 1 %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('transaction_history', page=page-1, type=txn_type or '', date_from=date_from or '', date_to=date_to or '') }}">&laquo;</a>
+        </li>
+        {% for p in range(1, pages+1) %}
+          {% if p == 1 or p == pages or (p >= page-2 and p <= page+2) %}
+            {% if ns.prev and p - ns.prev > 1 %}
+            <li class="page-item disabled"><span class="page-link">…</span></li>
+            {% endif %}
+            <li class="page-item {% if p == page %}active{% endif %}">
+              <a class="page-link" href="{{ url_for('transaction_history', page=p, type=txn_type or '', date_from=date_from or '', date_to=date_to or '') }}">{{ p }}</a>
+            </li>
+            {% set ns.prev = p %}
+          {% endif %}
+        {% endfor %}
+        <li class="page-item {% if page == pages %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('transaction_history', page=page+1, type=txn_type or '', date_from=date_from or '', date_to=date_to or '') }}">&raquo;</a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

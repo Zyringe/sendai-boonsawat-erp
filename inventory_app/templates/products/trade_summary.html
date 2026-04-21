@@ -1,0 +1,271 @@
+{% extends 'base.html' %}
+{% block title %}{{ data.product.product_name }} – สรุปยอดขาย{% endblock %}
+{% block page_title %}สรุปยอดขาย: {{ data.product.product_name }}{% endblock %}
+
+{% block content %}
+
+{# ── Date filter ─────────────────────────────────────────────────────────── #}
+<div class="card mb-4">
+  <div class="card-body py-2">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-md-2">
+        <label class="form-label small mb-1">ตั้งแต่วันที่</label>
+        <input type="date" name="date_from" class="form-control form-control-sm"
+               value="{{ data.date_from or '' }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small mb-1">ถึงวันที่</label>
+        <input type="date" name="date_to" class="form-control form-control-sm"
+               value="{{ data.date_to or '' }}">
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-primary btn-sm">กรอง</button>
+        <a href="{{ url_for('product_trade_summary', product_id=data.product.id) }}"
+           class="btn btn-sm btn-outline-secondary ms-1">ล้าง</a>
+      </div>
+      <div class="col-auto ms-auto d-flex gap-2">
+        <a href="{{ url_for('product_detail', product_id=data.product.id) }}"
+           class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-box-seam me-1"></i>ข้อมูลสต็อก
+        </a>
+        <a href="{{ url_for('trade_dashboard') }}" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-arrow-left me-1"></i>ภาพรวมการค้า
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── Summary cards ───────────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+  <div class="col-sm-6 col-xl-3">
+    <div class="stat-card">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-card-icon" style="background:#dcfce7">
+          <i class="bi bi-cash-stack" style="color:#16a34a"></i>
+        </div>
+        <div>
+          <div class="stat-card-label">ยอดขายรวม</div>
+          <div class="stat-card-value text-success">{{ data.summary.total_net | fmt_price }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="stat-card">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-card-icon" style="background:#e0f2fe">
+          <i class="bi bi-box-seam" style="color:#0284c7"></i>
+        </div>
+        <div>
+          <div class="stat-card-label">จำนวนชิ้นที่ขาย</div>
+          <div class="stat-card-value" style="color:#0284c7">{{ data.summary.total_qty | fmt_qty }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="stat-card">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-card-icon" style="background:#fef9c3">
+          <i class="bi bi-file-earmark-text" style="color:#b45309"></i>
+        </div>
+        <div>
+          <div class="stat-card-label">จำนวนเอกสาร</div>
+          <div class="stat-card-value text-warning">{{ data.summary.doc_count | fmt_qty }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="stat-card">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-card-icon" style="background:#ede9fe">
+          <i class="bi bi-calendar-range" style="color:#7c3aed"></i>
+        </div>
+        <div>
+          <div class="stat-card-label">ช่วงเวลา</div>
+          <div class="stat-card-value small fw-600" style="color:#7c3aed;font-size:1rem">
+            {% if data.summary.first_date %}
+              {{ data.summary.first_date }}<br>
+              <span class="text-subtle" style="font-size:.8rem">ถึง {{ data.summary.last_date }}</span>
+            {% else %}—{% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Monthly trend chart ─────────────────────────────────────────────────── #}
+{% if data.monthly %}
+<div class="card mb-4">
+  <div class="card-header">
+    <i class="bi bi-bar-chart-line me-2 text-accent"></i>ยอดขายรายเดือน
+  </div>
+  <div class="card-body" style="padding:1.25rem">
+    <canvas id="monthlyChart" height="80"></canvas>
+  </div>
+</div>
+{% endif %}
+
+<div class="row g-3 mb-4">
+
+  {# ── Top customers ───────────────────────────────────────────────────────── #}
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <i class="bi bi-people me-2 text-accent"></i>ลูกค้าที่ซื้อสินค้านี้มากที่สุด
+      </div>
+      <div class="table-responsive">
+        <table class="table mb-0">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>ลูกค้า</th>
+              <th class="text-end">จำนวน</th>
+              <th class="text-end">ยอด</th>
+              <th class="text-end">เอกสาร</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in data.top_customers %}
+            <tr>
+              <td class="text-subtle">{{ loop.index }}</td>
+              <td>
+                <a href="{{ url_for('customer_summary', customer_name=r.customer,
+                                    date_from=data.date_from, date_to=data.date_to) }}"
+                   class="text-decoration-none text-main fw-500">{{ r.customer }}</a>
+              </td>
+              <td class="text-end font-mono text-subtle">{{ r.total_qty | fmt_qty }}</td>
+              <td class="text-end font-mono fw-600 text-success">{{ r.total_net | fmt_price }}</td>
+              <td class="text-end font-mono text-subtle">{{ r.doc_count }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-center text-subtle py-4">ไม่มีข้อมูล</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  {# ── Recent docs ─────────────────────────────────────────────────────────── #}
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <i class="bi bi-receipt me-2 text-accent"></i>รายการเอกสารล่าสุด
+        <span class="text-subtle small ms-1">({{ data.docs | length }} รายการ)</span>
+      </div>
+      <div class="table-responsive" style="max-height:420px;overflow-y:auto">
+        <table class="table mb-0">
+          <thead class="sticky-top bg-white">
+            <tr>
+              <th>วันที่</th>
+              <th>เลขเอกสาร</th>
+              <th>ลูกค้า</th>
+              <th class="text-end">จำนวน</th>
+              <th class="text-end">ยอด</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in data.docs %}
+            <tr>
+              <td class="font-mono text-subtle small">{{ r.date_iso }}</td>
+              <td class="font-mono small">
+                <a href="{{ url_for('sales_doc', doc_base=r.doc_no.rsplit('-',1)[0]) }}"
+                   class="text-decoration-none text-main">
+                  {{ r.doc_no.rsplit('-',1)[0] }}
+                </a>
+              </td>
+              <td class="small">
+                {% if r.customer %}
+                  <a href="{{ url_for('customer_summary', customer_name=r.customer) }}"
+                     class="text-decoration-none text-subtle">{{ r.customer }}</a>
+                {% else %}—{% endif %}
+              </td>
+              <td class="text-end small text-subtle">{{ r.total_qty | fmt_qty }}</td>
+              <td class="text-end fw-600 text-success small">{{ r.total_net | fmt_price }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-center text-subtle py-4">ไม่มีข้อมูล</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+{% if data.monthly %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+  const monthly = {{ data.monthly | tojson }};
+  const labels  = monthly.map(d => d.month);
+  const nets    = monthly.map(d => d.total_net);
+  const qtys    = monthly.map(d => d.total_qty);
+
+  new Chart(document.getElementById('monthlyChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'ยอดขาย (฿)',
+          data: nets,
+          backgroundColor: 'rgba(34,197,94,0.75)',
+          borderRadius: 4,
+          yAxisID: 'y',
+        },
+        {
+          label: 'จำนวน (ชิ้น)',
+          data: qtys,
+          backgroundColor: 'rgba(99,102,241,0.6)',
+          borderRadius: 4,
+          yAxisID: 'y2',
+          type: 'line',
+          tension: 0.3,
+          borderColor: 'rgba(99,102,241,0.9)',
+          pointRadius: 3,
+        },
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              if (ctx.dataset.yAxisID === 'y')
+                return ' ยอดขาย: ฿' + Number(ctx.parsed.y).toLocaleString('th-TH', {minimumFractionDigits:2});
+              return ' จำนวน: ' + Number(ctx.parsed.y).toLocaleString('th-TH') + ' ชิ้น';
+            }
+          }
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          position: 'left',
+          ticks: { callback: v => v >= 1000 ? (v/1000).toFixed(0)+'k' : v }
+        },
+        y2: {
+          beginAtZero: true,
+          position: 'right',
+          grid: { drawOnChartArea: false },
+          ticks: { callback: v => v }
+        }
+      }
+    }
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

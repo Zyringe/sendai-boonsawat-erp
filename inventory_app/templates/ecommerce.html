@@ -1,0 +1,412 @@
+{% extends 'base.html' %}
+{% block title %}E-commerce – ERP{% endblock %}
+{% block page_title %}E-commerce{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('ecommerce_export', platform=tab) }}" class="btn btn-sm btn-outline-success">
+  <i class="bi bi-download me-1"></i>ดาวน์โหลด {{ tab | capitalize }}
+</a>
+{% endblock %}
+
+{% block content %}
+
+{# ── Summary Cards ── #}
+<div class="row g-3 mb-4">
+  {% set shopee_info = summary.get('shopee', {}) %}
+  {% set lazada_info = summary.get('lazada', {}) %}
+  <div class="col-sm-6 col-md-3">
+    <div class="stat-card" style="border-left:4px solid #ee4d2d">
+      <div class="stat-card-label"><i class="bi bi-bag-heart me-1"></i>Shopee SKU</div>
+      <div class="stat-card-value text-danger mt-1">{{ shopee_info.get('sku_count', 0) | fmt_qty }}</div>
+      <div class="stat-card-sub">คลังรวม {{ shopee_info.get('total_stock', 0) | fmt_qty }} ชิ้น</div>
+      {% if shopee_info.get('last_import') %}
+      <div class="stat-card-sub text-muted">นำเข้าล่าสุด {{ shopee_info.last_import[:10] }}</div>
+      {% else %}
+      <div class="stat-card-sub text-muted">ยังไม่มีข้อมูล</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-sm-6 col-md-3">
+    <div class="stat-card" style="border-left:4px solid #003087">
+      <div class="stat-card-label"><i class="bi bi-shop me-1"></i>Lazada SKU</div>
+      <div class="stat-card-value text-primary mt-1">{{ lazada_info.get('sku_count', 0) | fmt_qty }}</div>
+      <div class="stat-card-sub">คลังรวม {{ lazada_info.get('total_stock', 0) | fmt_qty }} ชิ้น</div>
+      {% if lazada_info.get('last_import') %}
+      <div class="stat-card-sub text-muted">นำเข้าล่าสุด {{ lazada_info.last_import[:10] }}</div>
+      {% else %}
+      <div class="stat-card-sub text-muted">ยังไม่มีข้อมูล</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-sm-6 col-md-3">
+    <div class="stat-card" style="border-left:4px solid #10b981">
+      <div class="stat-card-label"><i class="bi bi-boxes me-1"></i>SKU รวมทั้งหมด</div>
+      <div class="stat-card-value text-success mt-1">
+        {{ (shopee_info.get('sku_count', 0) + lazada_info.get('sku_count', 0)) | fmt_qty }}
+      </div>
+      <div class="stat-card-sub">Shopee + Lazada</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-md-3">
+    <div class="stat-card" style="border-left:4px solid #f59e0b">
+      <div class="stat-card-label"><i class="bi bi-info-circle me-1"></i>การ Mapping</div>
+      <div class="stat-card-value text-warning mt-1" style="font-size:1rem">ยังไม่ได้ผูก</div>
+      <div class="stat-card-sub text-muted">เชื่อมสินค้าในระบบในอนาคต</div>
+    </div>
+  </div>
+</div>
+
+{# ── Platform Tabs ── #}
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-white border-bottom-0 pb-0">
+    <ul class="nav nav-tabs card-header-tabs" id="platformTab">
+      <li class="nav-item">
+        <a class="nav-link {% if tab == 'shopee' %}active{% endif %}"
+           href="{{ url_for('ecommerce', tab='shopee', q=search) }}">
+          <span style="color:#ee4d2d"><i class="bi bi-bag-heart me-1"></i></span>
+          Shopee
+          {% if summary.get('shopee') %}
+          <span class="badge bg-danger ms-1">{{ summary.shopee.sku_count | fmt_qty }}</span>
+          {% endif %}
+        </a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link {% if tab == 'lazada' %}active{% endif %}"
+           href="{{ url_for('ecommerce', tab='lazada', q=search) }}">
+          <span style="color:#003087"><i class="bi bi-shop me-1"></i></span>
+          Lazada
+          {% if summary.get('lazada') %}
+          <span class="badge bg-primary ms-1">{{ summary.lazada.sku_count | fmt_qty }}</span>
+          {% endif %}
+        </a>
+      </li>
+    </ul>
+  </div>
+
+  <div class="card-body">
+    {# ── Toolbar ── #}
+    <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+
+      {# Search #}
+      <form class="d-flex gap-2 me-auto" method="GET" action="{{ url_for('ecommerce') }}">
+        <input type="hidden" name="tab" value="{{ tab }}">
+        <div class="input-group input-group-sm" style="width:280px">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input type="text" class="form-control" name="q"
+                 placeholder="ค้นหาชื่อ / SKU / variation..."
+                 value="{{ search }}">
+          {% if search %}
+          <a href="{{ url_for('ecommerce', tab=tab) }}" class="btn btn-outline-secondary">
+            <i class="bi bi-x-lg"></i>
+          </a>
+          {% endif %}
+        </div>
+        <button class="btn btn-sm btn-outline-primary" type="submit">ค้นหา</button>
+      </form>
+
+      {# Upload button → Modal #}
+      <button class="btn btn-sm btn-outline-warning" data-bs-toggle="modal"
+              data-bs-target="#uploadModal{{ tab | capitalize }}">
+        <i class="bi bi-upload me-1"></i>อัพโหลด {{ tab | capitalize }}
+      </button>
+
+      {# Download #}
+      <a href="{{ url_for('ecommerce_export', platform=tab) }}"
+         class="btn btn-sm {% if tab == 'shopee' %}btn-danger{% else %}btn-primary{% endif %}">
+        <i class="bi bi-download me-1"></i>ดาวน์โหลด {{ tab | capitalize }}
+      </a>
+    </div>
+
+    {# ── Table ── #}
+    {% if rows %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle" style="font-size:.85rem">
+        <thead class="table-light">
+          <tr>
+            <th style="min-width:180px">ชื่อสินค้า ({{ tab | capitalize }})</th>
+            <th style="min-width:140px">ตัวเลือก</th>
+            <th>Seller SKU</th>
+            {% if tab == 'lazada' %}<th>Variation ID (Lazada)</th>{% endif %}
+            <th class="text-end">ราคา (฿)</th>
+            {% if tab == 'lazada' %}<th class="text-end">ราคาพิเศษ (฿)</th>{% endif %}
+            <th class="text-end">คลัง</th>
+            <th class="text-center" style="width:60px">แก้ไข</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>
+              <div class="fw-semibold" style="line-height:1.3">{{ r.product_name | truncate(60) }}</div>
+              {% if tab == 'shopee' %}
+              <small class="text-muted">รหัสสินค้า {{ r.product_id_str }}</small>
+              {% else %}
+              <small class="text-muted">Product ID {{ r.product_id_str }}</small>
+              {% endif %}
+            </td>
+            <td>
+              {% if r.variation_name %}
+              <span class="badge bg-light text-dark border">{{ r.variation_name }}</span>
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            <td class="text-muted" style="font-size:.8rem">{{ r.seller_sku or '—' }}</td>
+            {% if tab == 'lazada' %}
+            <td class="text-muted" style="font-size:.78rem">{{ r.variation_id or '—' }}</td>
+            {% endif %}
+            <td class="text-end fw-semibold">
+              {% if r.price %}฿{{ r.price | fmt_price }}{% else %}—{% endif %}
+            </td>
+            {% if tab == 'lazada' %}
+            <td class="text-end">
+              {% if r.special_price %}
+              <span class="text-danger fw-semibold">฿{{ r.special_price | fmt_price }}</span>
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            {% endif %}
+            <td class="text-end">
+              {% if r.stock is not none %}
+              <span class="{% if r.stock == 0 %}text-danger{% elif r.stock < 5 %}text-warning{% else %}text-success{% endif %} fw-semibold">
+                {{ r.stock | fmt_qty }}
+              </span>
+              {% else %}—{% endif %}
+            </td>
+            <td class="text-center">
+              <button class="btn btn-xs btn-outline-secondary py-0 px-1"
+                      data-bs-toggle="modal"
+                      data-bs-target="#editModal{{ r.id }}">
+                <i class="bi bi-pencil" style="font-size:.75rem"></i>
+              </button>
+            </td>
+          </tr>
+          {# Edit Modal #}
+          <div class="modal fade" id="editModal{{ r.id }}" tabindex="-1">
+            <div class="modal-dialog modal-sm">
+              <form method="POST" action="{{ url_for('ecommerce_sku_edit', sku_id=r.id) }}">
+                <input type="hidden" name="platform" value="{{ tab }}">
+                <input type="hidden" name="page" value="{{ page }}">
+                <input type="hidden" name="q" value="{{ search }}">
+                <div class="modal-content">
+                  <div class="modal-header py-2">
+                    <h6 class="modal-title">แก้ไข SKU</h6>
+                    <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+                  </div>
+                  <div class="modal-body">
+                    <p class="text-muted small mb-2">{{ r.product_name | truncate(50) }}</p>
+                    {% if r.variation_name %}<p class="badge bg-light text-dark border mb-2">{{ r.variation_name }}</p>{% endif %}
+                    <div class="mb-2">
+                      <label class="form-label form-label-sm mb-1">ราคา (฿)</label>
+                      <input type="number" step="0.01" class="form-control form-control-sm"
+                             name="price" value="{{ r.price or '' }}">
+                    </div>
+                    {% if tab == 'lazada' %}
+                    <div class="mb-2">
+                      <label class="form-label form-label-sm mb-1">ราคาพิเศษ (฿)</label>
+                      <input type="number" step="0.01" class="form-control form-control-sm"
+                             name="special_price" value="{{ r.special_price or '' }}">
+                    </div>
+                    {% else %}
+                    <input type="hidden" name="special_price" value="">
+                    {% endif %}
+                    <div class="mb-2">
+                      <label class="form-label form-label-sm mb-1">คลัง (ชิ้น)</label>
+                      <input type="number" class="form-control form-control-sm"
+                             name="stock" value="{{ r.stock if r.stock is not none else '' }}">
+                    </div>
+                    <div class="mb-2">
+                      <label class="form-label form-label-sm mb-1">
+                        จำนวนต่อการขาย 1 ชิ้น
+                        <i class="bi bi-question-circle text-muted" data-bs-toggle="tooltip"
+                           title="ตัวอย่าง: ขาย 1 ชิ้นบน Shopee = ลดสต็อก 6 หน่วย → ใส่ 6"></i>
+                      </label>
+                      <input type="number" step="0.01" class="form-control form-control-sm"
+                             name="qty_per_sale" value="{{ r.qty_per_sale or 1 }}">
+                    </div>
+                  </div>
+                  <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">ยกเลิก</button>
+                    <button type="submit" class="btn btn-sm btn-primary">บันทึก</button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {# Pagination #}
+    {% if pages > 1 %}
+    <nav class="mt-3">
+      <ul class="pagination pagination-sm justify-content-center mb-0">
+        {% if page > 1 %}
+        <li class="page-item">
+          <a class="page-link" href="{{ url_for('ecommerce', tab=tab, q=search, page=page-1) }}">‹</a>
+        </li>
+        {% endif %}
+        {% for p in range([1, page-2]|max, [pages+1, page+3]|min) %}
+        <li class="page-item {% if p == page %}active{% endif %}">
+          <a class="page-link" href="{{ url_for('ecommerce', tab=tab, q=search, page=p) }}">{{ p }}</a>
+        </li>
+        {% endfor %}
+        {% if page < pages %}
+        <li class="page-item">
+          <a class="page-link" href="{{ url_for('ecommerce', tab=tab, q=search, page=page+1) }}">›</a>
+        </li>
+        {% endif %}
+      </ul>
+      <p class="text-center text-muted small mt-2">
+        แสดง {{ rows|length }} จาก {{ total | fmt_qty }} รายการ (หน้า {{ page }}/{{ pages }})
+      </p>
+    </nav>
+    {% endif %}
+
+    {% else %}
+    {# Empty state #}
+    <div class="text-center py-5 text-muted">
+      <i class="bi bi-cloud-upload" style="font-size:3rem;opacity:.3"></i>
+      <p class="mt-3">
+        {% if search %}
+          ไม่พบสินค้าที่ตรงกับ "<strong>{{ search }}</strong>"
+        {% else %}
+          ยังไม่มีข้อมูล {{ tab | capitalize }} — กรุณาอัพโหลดไฟล์ xlsx จาก {{ tab | capitalize }}
+        {% endif %}
+      </p>
+      <button class="btn btn-outline-warning" data-bs-toggle="modal"
+              data-bs-target="#uploadModal{{ tab | capitalize }}">
+        <i class="bi bi-upload me-1"></i>อัพโหลดไฟล์ {{ tab | capitalize }}
+      </button>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Mapping Section ── #}
+<div class="card border-0 shadow-sm mt-3">
+  <div class="card-header bg-white d-flex align-items-center justify-content-between py-2">
+    <span class="fw-semibold"><i class="bi bi-link-45deg me-1 text-primary"></i>การผูก SKU กับสินค้าในระบบ</span>
+    <div class="d-flex gap-2">
+      <a href="{{ url_for('ecommerce_mapping_export') }}"
+         class="btn btn-sm btn-outline-primary">
+        <i class="bi bi-download me-1"></i>ดาวน์โหลดไฟล์ Mapping
+      </a>
+      <button class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#uploadMappingModal">
+        <i class="bi bi-upload me-1"></i>อัพโหลด Mapping
+      </button>
+    </div>
+  </div>
+  <div class="card-body py-2 px-3">
+    {% set total_skus = (summary.get('shopee', {}).get('sku_count', 0) + summary.get('lazada', {}).get('sku_count', 0)) %}
+    <p class="mb-1 small text-muted">
+      <strong>วิธีใช้:</strong>
+      ① ดาวน์โหลดไฟล์ Mapping (Excel) →
+      ② ใส่ <code>internal_sku</code> (SKU ของสินค้าในระบบ) และ <code>qty_per_sale</code> →
+      ③ อัพโหลดกลับเข้าระบบ
+    </p>
+    <p class="mb-0 small text-muted">
+      <strong>qty_per_sale</strong> = จำนวนหน่วยในระบบที่ลดเมื่อขาย 1 ชิ้นบน platform &nbsp;|&nbsp;
+      สินค้าชนิดเดียวกันอาจมีหลาย SKU บน platform (เช่น แบบ 1 ชิ้น และ แบบ 25 ชิ้น → ตั้งค่า 1 และ 25 ตามลำดับ)
+    </p>
+  </div>
+</div>
+
+{# ── คำอธิบาย qty_per_sale ── #}
+<div class="card border-0 shadow-sm mt-3">
+  <div class="card-body py-2 px-3">
+    <p class="mb-1 text-muted small"><i class="bi bi-info-circle me-1"></i><strong>จำนวนต่อการขาย (qty_per_sale)</strong> คือ conversion ratio เมื่อมียอดขาย 1 ชิ้นบน platform → ลดสต็อกในระบบกี่หน่วย</p>
+    <p class="mb-0 text-muted small">เช่น ปุ๊กพลาสติก #7 (500 กรัม) → ใส่ <strong>0.5</strong> | สายเอ็นสีสะท้อนแสง 6 ม้วน → ใส่ <strong>6</strong> | ลูกรีเวท [100ตัว] → ใส่ <strong>100</strong></p>
+  </div>
+</div>
+
+{# ── Upload Modals ── #}
+{% for plat in ['Shopee', 'Lazada'] %}
+<div class="modal fade" id="uploadModal{{ plat }}" tabindex="-1">
+  <div class="modal-dialog">
+    <form method="POST" action="{{ url_for('ecommerce_import') }}" enctype="multipart/form-data">
+      <input type="hidden" name="platform" value="{{ plat | lower }}">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">
+            {% if plat == 'Shopee' %}
+            <span style="color:#ee4d2d"><i class="bi bi-bag-heart me-1"></i></span>
+            {% else %}
+            <span style="color:#003087"><i class="bi bi-shop me-1"></i></span>
+            {% endif %}
+            อัพโหลดไฟล์ {{ plat }}
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          {% if plat == 'Shopee' %}
+          <p class="text-muted small mb-3">
+            ไปที่ Shopee Seller Centre → สินค้า → แก้ไขราคา/สต็อกจำนวนมาก → ดาวน์โหลดเทมเพลต แล้วอัพโหลดที่นี่
+          </p>
+          {% else %}
+          <p class="text-muted small mb-3">
+            ไปที่ Lazada Seller Centre → คลัง → ดาวน์โหลด Price & Stock Export แล้วอัพโหลดที่นี่
+          </p>
+          {% endif %}
+          <div class="mb-3">
+            <label class="form-label">เลือกไฟล์ .xlsx</label>
+            <input type="file" class="form-control" name="platform_file" accept=".xlsx" required>
+          </div>
+          <div class="alert alert-warning py-2 small mb-0">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            การอัพโหลดจะ <strong>แทนที่ข้อมูลทั้งหมด</strong> ของ {{ plat }} ในระบบ
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">ยกเลิก</button>
+          <button type="submit" class="btn btn-warning">
+            <i class="bi bi-upload me-1"></i>นำเข้า
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endfor %}
+
+{# ── Upload Mapping Modal ── #}
+<div class="modal fade" id="uploadMappingModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form method="POST" action="{{ url_for('ecommerce_mapping_import') }}" enctype="multipart/form-data">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-link-45deg me-1"></i>อัพโหลดไฟล์ Mapping</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">
+            อัพโหลดไฟล์ที่กรอก <strong>internal_sku</strong> และ <strong>qty_per_sale</strong> แล้ว
+          </p>
+          <div class="mb-3">
+            <label class="form-label">เลือกไฟล์ .xlsx (Mapping file)</label>
+            <input type="file" class="form-control" name="mapping_file" accept=".xlsx" required>
+          </div>
+          <div class="alert alert-info py-2 small">
+            <i class="bi bi-info-circle me-1"></i>
+            ระบบจะอัพเดทเฉพาะแถวที่กรอก internal_sku ไว้ — แถวที่ว่างจะไม่เปลี่ยนแปลง
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">ยกเลิก</button>
+          <button type="submit" class="btn btn-success">
+            <i class="bi bi-upload me-1"></i>อัพโหลด
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Enable tooltips
+document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+  new bootstrap.Tooltip(el)
+})
+</script>
+{% endblock %}

@@ -1,0 +1,99 @@
+{% extends 'base.html' %}
+{% block title %}{{ doc_base }} – ERP{% endblock %}
+{% block page_title %}เอกสารซื้อ {{ doc_base }}{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('purchases_view') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-arrow-left me-1"></i>กลับยอดซื้อ
+</a>
+{% endblock %}
+
+{% block content %}
+{% set first = rows[0] %}
+
+<!-- Info Bar -->
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <div class="row g-3 align-items-center">
+      <div class="col-auto">
+        <span class="text-subtle small">วันที่</span><br>
+        <strong class="font-mono">{{ first.date_iso }}</strong>
+      </div>
+      <div class="col-auto">
+        <span class="text-subtle small">ผู้ขาย/ซัพพลายเออร์</span><br>
+        <strong>{{ first.supplier or '–' }}</strong>
+        {% if first.supplier_code %}
+          <span class="text-subtle small ms-1">({{ first.supplier_code }})</span>
+        {% endif %}
+      </div>
+      <div class="col-auto ms-auto text-end">
+        <span class="text-subtle small">ยอดสุทธิรวม</span><br>
+        <strong class="fs-5 text-primary">฿{{ total_net | fmt_price }}</strong>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Line Items -->
+<div class="card">
+  <div class="card-header">
+    <span class="text-subtle small">พบ <strong class="text-main">{{ rows | length }}</strong> รายการ</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table mb-0">
+      <thead>
+        <tr>
+          <th>Line</th>
+          <th>รหัส BSN</th>
+          <th>สินค้า</th>
+          <th class="text-end">จำนวน</th>
+          <th class="text-end">ราคา/หน่วย</th>
+          <th class="text-end">ส่วนลด</th>
+          <th class="text-end">รวม</th>
+          <th class="text-end">สุทธิ</th>
+          <th class="text-center">Sync</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="font-mono text-subtle small">{{ r.doc_no }}</td>
+          <td class="font-mono small text-subtle">{{ r.bsn_code }}</td>
+          <td>
+            {% if r.product_id %}
+              <a href="{{ url_for('product_detail', product_id=r.product_id) }}"
+                 class="text-decoration-none text-main">{{ r.display_name }}</a>
+              <div class="text-subtle" style="font-size:0.75rem">SKU {{ r.sku }}</div>
+            {% else %}
+              <span class="text-warning small">
+                <i class="bi bi-exclamation-triangle me-1"></i>{{ r.display_name }}
+              </span>
+            {% endif %}
+          </td>
+          <td class="text-end small">{{ r.qty | fmt_qty }} {{ r.unit }}</td>
+          <td class="text-end small">{{ r.unit_price | fmt_price }}</td>
+          <td class="text-end small text-danger">{{ r.discount or '–' }}</td>
+          <td class="text-end small">{{ r.total | fmt_price }}</td>
+          <td class="text-end fw-600">{{ r.net | fmt_price }}</td>
+          <td class="text-center">
+            {% if r.synced_to_stock %}
+              <span class="badge badge-success"><i class="bi bi-check2"></i></span>
+            {% else %}
+              <span class="badge badge-gray">รอ</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="table-light fw-600">
+          <td colspan="6" class="text-end text-subtle">รวมทั้งสิ้น</td>
+          <td class="text-end">{{ rows | sum(attribute='total') | fmt_price }}</td>
+          <td class="text-end text-primary">{{ total_net | fmt_price }}</td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+{% endblock %}

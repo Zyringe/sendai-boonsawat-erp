@@ -1,0 +1,135 @@
+{% extends 'base.html' %}
+{% block title %}สินค้า – ERP{% endblock %}
+{% block page_title %}รายการสินค้า{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('csv_import') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-upload me-1"></i>นำเข้า CSV
+</a>
+{% endblock %}
+
+{% block content %}
+<!-- Search / Filter bar -->
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <form method="get" class="row g-2 align-items-center">
+      <div class="col">
+        <div class="input-group input-group-sm">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input type="text" name="q" class="form-control"
+                 placeholder="ค้นหาชื่อสินค้า หรือ SKU..." value="{{ search }}">
+        </div>
+      </div>
+      <div class="col-auto d-flex gap-3 align-items-center">
+        <div class="form-check mb-0">
+          <input class="form-check-input" type="checkbox" name="low_stock" value="1"
+                 id="chkLow" {% if low_stock %}checked{% endif %}>
+          <label class="form-check-label small" for="chkLow">สต็อกต่ำ</label>
+        </div>
+        <div class="form-check mb-0">
+          <input class="form-check-input" type="checkbox" name="hard_to_sell" value="1"
+                 id="chkHard" {% if hard_to_sell %}checked{% endif %}>
+          <label class="form-check-label small" for="chkHard">ขายยาก</label>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">กรอง</button>
+        <a href="{{ url_for('product_list') }}" class="btn btn-sm btn-outline-secondary">ล้าง</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span class="text-subtle small">พบ <strong class="text-main">{{ total | fmt_qty }}</strong> รายการ</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table mb-0">
+      <thead>
+        <tr>
+          <th style="width:70px">SKU</th>
+          <th>ชื่อสินค้า</th>
+          <th class="text-center">หน่วย</th>
+          <th class="text-end">ราคาขาย</th>
+          <th class="text-end">สต็อก</th>
+          <th class="text-end">ต้นทุน</th>
+          <th class="text-end">Shopee</th>
+          <th class="text-end">Lazada</th>
+          <th class="text-center" style="width:110px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in products %}
+        <tr {% if p.is_low %}class="row-low-stock"{% endif %}>
+          <td><span class="badge badge-gray font-mono">{{ p.sku }}</span></td>
+          <td>
+            <a href="{{ url_for('product_detail', product_id=p.id) }}"
+               class="text-decoration-none fw-500 text-main">{{ p.product_name }}</a>
+            {% if p.hard_to_sell %}
+              <span class="badge badge-warning ms-1">ขายยาก</span>
+            {% endif %}
+            {% if p.is_low %}
+              <span class="badge badge-danger ms-1">สต็อกต่ำ</span>
+            {% endif %}
+          </td>
+          <td class="text-center text-subtle">{{ p.unit_type }}</td>
+          <td class="text-end text-subtle">{{ p.base_sell_price | fmt_price }}</td>
+          <td class="text-end fw-600 {% if p.is_low %}text-danger{% else %}text-main{% endif %}">
+            {{ p.quantity | fmt_qty }}
+          </td>
+          <td class="text-end text-subtle">{% if is_manager %}{{ p.cost_price | fmt_price }}{% else %}—{% endif %}</td>
+          <td class="text-end text-subtle">{{ p.shopee_stock | fmt_qty }}</td>
+          <td class="text-end text-subtle">{{ p.lazada_stock | fmt_qty }}</td>
+          <td class="text-center">
+            {% if is_admin %}
+            <a href="{{ url_for('stock_in', product_id=p.id) }}"
+               class="btn btn-xs me-1" style="background:#dcfce7;color:#16a34a;border:none" title="รับเข้า">
+              <i class="bi bi-arrow-down-circle"></i>
+            </a>
+            <a href="{{ url_for('stock_out', product_id=p.id) }}"
+               class="btn btn-xs me-1" style="background:#fee2e2;color:#ef4444;border:none" title="จ่ายออก">
+              <i class="bi bi-arrow-up-circle"></i>
+            </a>
+            <a href="{{ url_for('product_edit', product_id=p.id) }}"
+               class="btn btn-xs" style="background:#f1f5f9;color:#475569;border:none" title="แก้ไข">
+              <i class="bi bi-pencil"></i>
+            </a>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="text-center text-subtle py-5">ไม่พบสินค้า</td></tr>
+
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if pages > 1 %}
+  <div class="card-footer">
+    <nav>
+      <ul class="pagination pagination-sm mb-0 justify-content-center flex-wrap">
+        {% set ns = namespace(prev=0) %}
+        <li class="page-item {% if page == 1 %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('product_list', page=page-1, q=search, low_stock=1 if low_stock else '', hard_to_sell=1 if hard_to_sell else '') }}">&laquo;</a>
+        </li>
+        {% for p in range(1, pages+1) %}
+          {% if p == 1 or p == pages or (p >= page-2 and p <= page+2) %}
+            {% if ns.prev and p - ns.prev > 1 %}
+            <li class="page-item disabled"><span class="page-link">…</span></li>
+            {% endif %}
+            <li class="page-item {% if p == page %}active{% endif %}">
+              <a class="page-link" href="{{ url_for('product_list', page=p, q=search, low_stock=1 if low_stock else '', hard_to_sell=1 if hard_to_sell else '') }}">{{ p }}</a>
+            </li>
+            {% set ns.prev = p %}
+          {% endif %}
+        {% endfor %}
+        <li class="page-item {% if page == pages %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('product_list', page=page+1, q=search, low_stock=1 if low_stock else '', hard_to_sell=1 if hard_to_sell else '') }}">&raquo;</a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

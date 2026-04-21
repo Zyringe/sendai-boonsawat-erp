@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Flask ERP Server",
+      "runtimeExecutable": "/usr/local/bin/python3",
+      "runtimeArgs": ["/Users/put/Documents/Sendai-Boonsawat/ERP/inventory_app/app.py"],
+      "port": 5001
+    }
+  ]
+}

@@ -1,0 +1,167 @@
+{% extends 'base.html' %}
+{% block title %}ยอดขาย – ERP{% endblock %}
+{% block page_title %}รายงานยอดขาย{% endblock %}
+
+{% block topbar_actions %}
+{% if pending_map > 0 %}
+<a href="{{ url_for('mapping') }}" class="btn btn-sm" style="background:#fef9c3;color:#92400e;border:none">
+  <i class="bi bi-tags me-1"></i>ผูกรหัส ({{ pending_map }})
+</a>
+{% endif %}
+<a href="{{ url_for('import_weekly') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-upload me-1"></i>นำเข้าไฟล์
+</a>
+{% endblock %}
+
+{% block content %}
+<!-- Summary Cards -->
+<div class="row g-3 mb-3">
+  <div class="col-md-4">
+    <div class="stat-card" style="border-left:4px solid #22c55e">
+      <div class="stat-card-label"><i class="bi bi-receipt me-1"></i>รวม VAT &nbsp;<span class="badge badge-success">Type 1</span></div>
+      <div class="stat-card-value text-success mt-2">
+        ฿{{ vat_summary.get(1, {}).get('total_net', 0) | fmt_price }}
+      </div>
+      <div class="stat-card-sub">{{ vat_summary.get(1, {}).get('txn_count', 0) | fmt_qty }} รายการ</div>
+      <div class="vat-bar" style="background:#22c55e"></div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card" style="border-left:4px solid #38bdf8">
+      <div class="stat-card-label"><i class="bi bi-receipt-cutoff me-1"></i>แยก VAT &nbsp;<span class="badge badge-info">Type 2</span></div>
+      <div class="stat-card-value mt-2" style="color:#0369a1">
+        ฿{{ vat_summary.get(2, {}).get('total_net', 0) | fmt_price }}
+      </div>
+      <div class="stat-card-sub">{{ vat_summary.get(2, {}).get('txn_count', 0) | fmt_qty }} รายการ</div>
+      <div class="vat-bar" style="background:#38bdf8"></div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card" style="border-left:4px solid #94a3b8">
+      <div class="stat-card-label"><i class="bi bi-dash-circle me-1"></i>ยกเว้น VAT &nbsp;<span class="badge badge-gray">Type 0</span></div>
+      <div class="stat-card-value text-subtle mt-2">
+        ฿{{ vat_summary.get(0, {}).get('total_net', 0) | fmt_price }}
+      </div>
+      <div class="stat-card-sub">{{ vat_summary.get(0, {}).get('txn_count', 0) | fmt_qty }} รายการ</div>
+      <div class="vat-bar" style="background:#94a3b8"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="card mb-3">
+  <div class="card-body py-2">
+    {% if filter_product %}
+    <div class="mb-2">
+      <span class="badge badge-gray me-1">สินค้า</span>
+      <strong class="text-main">{{ filter_product.product_name }}</strong>
+      <a href="{{ url_for('sales_view') }}" class="btn btn-xs ms-2" style="background:#f1f5f9;color:#475569;border:none">✕ ล้างตัวกรอง</a>
+    </div>
+    {% endif %}
+    <form method="get" class="row g-2 align-items-end">
+      {% if product_id %}<input type="hidden" name="product_id" value="{{ product_id }}">{% endif %}
+      <div class="col-md-2">
+        <label class="form-label small mb-1">ตั้งแต่วันที่</label>
+        <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from or '' }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small mb-1">ถึงวันที่</label>
+        <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to or '' }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small mb-1">VAT</label>
+        <select name="vat_type" class="form-select form-select-sm">
+          <option value="">ทั้งหมด</option>
+          <option value="1" {% if vat_type == 1 %}selected{% endif %}>รวม VAT (1)</option>
+          <option value="2" {% if vat_type == 2 %}selected{% endif %}>แยก VAT (2)</option>
+          <option value="0" {% if vat_type == 0 %}selected{% endif %}>ยกเว้น VAT (0)</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-primary btn-sm">กรอง</button>
+        <a href="{{ url_for('sales_view', product_id=product_id or '') }}" class="btn btn-sm btn-outline-secondary ms-1">ล้าง</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="card">
+  <div class="card-header">
+    <span class="text-subtle small">พบ <strong class="text-main">{{ total | fmt_qty }}</strong> รายการ</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table mb-0">
+      <thead>
+        <tr>
+          <th>วันที่</th><th>เลขที่เอกสาร</th><th>สินค้า</th>
+          <th>ลูกค้า</th><th class="text-center">VAT</th>
+          <th class="text-end">จำนวน</th><th class="text-end">ราคา/หน่วย</th>
+          <th class="text-end">ส่วนลด</th><th class="text-end">ยอดสุทธิ</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="font-mono text-subtle">{{ r.date_iso }}</td>
+          <td class="font-mono small">
+            <a href="{{ url_for('sales_doc', doc_base=r.doc_no.rsplit('-',1)[0]) }}"
+               class="text-decoration-none text-main">{{ r.doc_no.rsplit('-',1)[0] }}</a>
+          </td>
+          <td>
+            {% if r.product_id %}
+              <a href="{{ url_for('product_detail', product_id=r.product_id) }}"
+                 class="text-decoration-none text-main">{{ r.display_name }}</a>
+            {% else %}
+              <span class="text-warning small">
+                <i class="bi bi-exclamation-triangle me-1"></i>{{ r.display_name }}
+              </span>
+            {% endif %}
+          </td>
+          <td class="text-subtle small">{{ r.customer or '–' }}</td>
+          <td class="text-center">
+            {% if r.vat_type == 1 %}<span class="badge badge-success">รวม VAT</span>
+            {% elif r.vat_type == 2 %}<span class="badge badge-info">แยก VAT</span>
+            {% else %}<span class="badge badge-gray">ยกเว้น</span>{% endif %}
+          </td>
+          <td class="text-end small">{{ r.qty | fmt_qty }} {{ r.unit }}</td>
+          <td class="text-end small">{{ r.unit_price | fmt_price }}</td>
+          <td class="text-end small text-danger">{{ r.discount or '–' }}</td>
+          <td class="text-end fw-600">{{ r.net | fmt_price }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="text-center text-subtle py-5">ยังไม่มีข้อมูลการขาย</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if pages > 1 %}
+  <div class="card-footer">
+    <nav>
+      <ul class="pagination pagination-sm mb-0 justify-content-center flex-wrap">
+        {% set ns = namespace(prev=0) %}
+        {# ปุ่ม prev #}
+        <li class="page-item {% if page == 1 %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('sales_view', page=page-1, date_from=date_from or '', date_to=date_to or '', vat_type=vat_type if vat_type is not none else '') }}">&laquo;</a>
+        </li>
+        {% for p in range(1, pages+1) %}
+          {% if p == 1 or p == pages or (p >= page-2 and p <= page+2) %}
+            {% if ns.prev and p - ns.prev > 1 %}
+            <li class="page-item disabled"><span class="page-link">…</span></li>
+            {% endif %}
+            <li class="page-item {% if p == page %}active{% endif %}">
+              <a class="page-link" href="{{ url_for('sales_view', page=p, date_from=date_from or '', date_to=date_to or '', vat_type=vat_type if vat_type is not none else '') }}">{{ p }}</a>
+            </li>
+            {% set ns.prev = p %}
+          {% endif %}
+        {% endfor %}
+        {# ปุ่ม next #}
+        <li class="page-item {% if page == pages %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('sales_view', page=page+1, date_from=date_from or '', date_to=date_to or '', vat_type=vat_type if vat_type is not none else '') }}">&raquo;</a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,228 @@
+{% extends 'base.html' %}
+{% block title %}สถานะชำระหนี้ – ERP{% endblock %}
+{% block page_title %}สถานะชำระหนี้ลูกหนี้{% endblock %}
+
+{% block content %}
+
+{# ── Summary Cards ─────────────────────────────────────────────────────── #}
+{% if summary %}
+<div class="row g-3 mb-4">
+  <div class="col-sm-6 col-lg-3">
+    <div class="card text-center">
+      <div class="card-body py-3">
+        <div class="text-subtle small mb-1">บิลทั้งหมด</div>
+        <div class="fs-4 fw-bold">{{ '{:,}'.format(summary.total_bills or 0) }}</div>
+        <div class="text-subtle small">ใบ</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="card text-center border-success">
+      <div class="card-body py-3">
+        <div class="text-success small mb-1"><i class="bi bi-check-circle me-1"></i>ชำระแล้ว</div>
+        <div class="fs-4 fw-bold text-success">{{ '{:,}'.format(summary.paid_count or 0) }}</div>
+        <div class="text-subtle small">{{ '{:,.2f}'.format(summary.paid_amount or 0) }} บาท</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="card text-center border-danger">
+      <div class="card-body py-3">
+        <div class="text-danger small mb-1"><i class="bi bi-exclamation-circle me-1"></i>ยังไม่ชำระ</div>
+        <div class="fs-4 fw-bold text-danger">{{ '{:,}'.format(summary.unpaid_count or 0) }}</div>
+        <div class="text-subtle small">{{ '{:,.2f}'.format(summary.unpaid_amount or 0) }} บาท</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="card text-center">
+      <div class="card-body py-3">
+        <div class="text-subtle small mb-1">อัตราชำระ</div>
+        {% if summary.total_bills %}
+        {% set pct = (summary.paid_count / summary.total_bills * 100) | round(1) %}
+        <div class="fs-4 fw-bold">{{ pct }}%</div>
+        {% else %}
+        <div class="fs-4 fw-bold">–</div>
+        {% endif %}
+        <div class="text-subtle small">ของบิลทั้งหมด</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Filter Bar ────────────────────────────────────────────────────────── #}
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <form method="get" class="row g-2 align-items-end">
+      {# View toggle #}
+      <div class="col-auto">
+        <div class="btn-group btn-group-sm me-1" role="group">
+          <a href="{{ url_for('payment_status') }}"
+             class="btn btn-dark">
+            <i class="bi bi-list-ul me-1"></i>รายบิล
+          </a>
+          <a href="{{ url_for('payment_customers') }}"
+             class="btn btn-outline-secondary">
+            <i class="bi bi-people me-1"></i>รายลูกค้า
+          </a>
+        </div>
+      </div>
+      {# Status tabs #}
+      <div class="col-auto">
+        <div class="btn-group btn-group-sm" role="group">
+          <a href="?status=all&q={{ search }}&date_from={{ date_from }}&date_to={{ date_to }}"
+             class="btn {{ 'btn-dark' if status == 'all' else 'btn-outline-secondary' }}">ทั้งหมด</a>
+          <a href="?status=unpaid&q={{ search }}&date_from={{ date_from }}&date_to={{ date_to }}"
+             class="btn {{ 'btn-danger' if status == 'unpaid' else 'btn-outline-danger' }}">ยังไม่ชำระ</a>
+          <a href="?status=paid&q={{ search }}&date_from={{ date_from }}&date_to={{ date_to }}"
+             class="btn {{ 'btn-success' if status == 'paid' else 'btn-outline-success' }}">ชำระแล้ว</a>
+        </div>
+      </div>
+      <input type="hidden" name="status" value="{{ status }}">
+      <div class="col-sm-3">
+        <input type="text" name="q" value="{{ search }}" class="form-control form-control-sm"
+               placeholder="ค้นหาเลขที่เอกสาร / ลูกค้า…">
+      </div>
+      <div class="col-sm-2">
+        <input type="date" name="date_from" value="{{ date_from }}" class="form-control form-control-sm">
+      </div>
+      <div class="col-sm-2">
+        <input type="date" name="date_to" value="{{ date_to }}" class="form-control form-control-sm">
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-search"></i></button>
+        <a href="{{ url_for('payment_status') }}" class="btn btn-sm btn-outline-secondary">ล้าง</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── Table ─────────────────────────────────────────────────────────────── #}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-receipt me-2 text-accent"></i>รายการบิล ({{ '{:,}'.format(total) }} รายการ)</span>
+    {% if is_admin %}
+    <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#importModal">
+      <i class="bi bi-upload me-1"></i>อัปเดตข้อมูลชำระหนี้
+    </button>
+    {% endif %}
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0 small">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-3">วันที่บิล</th>
+          <th>ลูกค้า</th>
+          <th class="text-end">มูลค่า (บาท)</th>
+          <th class="text-center">สถานะ</th>
+          <th>วันที่ชำระ</th>
+          <th>เลขใบเสร็จ</th>
+          <th class="pe-3">เลขที่เอกสาร</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td class="ps-3 text-subtle">{{ row.bill_date }}</td>
+          <td>{{ row.customer or '–' }}</td>
+          <td class="text-end">{{ '{:,.2f}'.format(row.total_net or 0) }}</td>
+          <td class="text-center">
+            {% if row.is_paid %}
+            <span class="badge bg-success-subtle text-success"><i class="bi bi-check-circle me-1"></i>ชำระแล้ว</span>
+            {% else %}
+            <span class="badge bg-danger-subtle text-danger"><i class="bi bi-clock me-1"></i>ค้างชำระ</span>
+            {% endif %}
+          </td>
+          <td class="text-subtle">{{ row.paid_date or '–' }}</td>
+          <td class="text-subtle">{{ row.re_no or '–' }}</td>
+          <td class="pe-3 fw-medium">
+            <a href="{{ url_for('sales_doc', doc_base=row.doc_base) }}" class="text-decoration-none">
+              {{ row.doc_base }}
+            </a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-subtle py-4">ไม่พบข้อมูล</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# Pagination #}
+  {% if total_pages > 1 %}
+  {% set p_start = [2, page-1]|max %}
+  {% set p_end   = [total_pages-1, page+1]|min %}
+  <div class="card-footer d-flex justify-content-between align-items-center">
+    <span class="text-subtle small">หน้า {{ page }} / {{ total_pages }}</span>
+    <nav>
+      <ul class="pagination pagination-sm mb-0">
+        {# ‹ prev #}
+        <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+          <a class="page-link" href="?status={{ status }}&q={{ search }}&date_from={{ date_from }}&date_to={{ date_to }}&page={{ page-1 }}">‹</a>
+        </li>
+        {# หน้า 1 #}
+        <li class="page-item {% if page == 1 %}active{% endif %}">
+          <a class="page-link" href="?status={{ status }}&q={{ search }}&date_from={{ date_from }}&date_to={{ date_to }}&page=1">1</a>
+        </li>
+        {# ... ซ้าย #}
+        {% if p_start > 2 %}
+        <li class="page-item disabled"><span class="page-link">…</span></li>
+        {% endif %}
+        {# หน้ากลาง #}
+        {% for p in range(p_start, p_end+1) %}
+        <li class="page-item {% if p == page %}active{% endif %}">
+          <a class="page-link" href="?status={{ status }}&q={{ search }}&date_from={{ date_from }}&date_to={{ date_to }}&page={{ p }}">{{ p }}</a>
+        </li>
+        {% endfor %}
+        {# ... ขวา #}
+        {% if p_end < total_pages-1 %}
+        <li class="page-item disabled"><span class="page-link">…</span></li>
+        {% endif %}
+        {# หน้าสุดท้าย #}
+        {% if total_pages > 1 %}
+        <li class="page-item {% if page == total_pages %}active{% endif %}">
+          <a class="page-link" href="?status={{ status }}&q={{ search }}&date_from={{ date_from }}&date_to={{ date_to }}&page={{ total_pages }}">{{ total_pages }}</a>
+        </li>
+        {% endif %}
+        {# › next #}
+        <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+          <a class="page-link" href="?status={{ status }}&q={{ search }}&date_from={{ date_from }}&date_to={{ date_to }}&page={{ page+1 }}">›</a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Import Modal ──────────────────────────────────────────────────────── #}
+{% if is_admin %}
+<div class="modal fade" id="importModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-upload me-2"></i>อัปเดตข้อมูลชำระหนี้</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" action="{{ url_for('import_payments') }}" enctype="multipart/form-data">
+        <div class="modal-body">
+          <p class="small text-subtle mb-3">
+            อัปโหลดไฟล์ <strong>การรับชำระหนี้_เรียงตามวันที่ใบเสร็จ</strong> จากระบบ BSN (.csv, encoding CP874)<br>
+            ระบบจะข้ามใบเสร็จที่นำเข้าแล้วโดยอัตโนมัติ
+          </p>
+          <input type="file" name="payment_file" class="form-control" accept=".csv" required>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">ยกเลิก</button>
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-cloud-upload me-1"></i>นำเข้า
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

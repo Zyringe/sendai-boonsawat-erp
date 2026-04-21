@@ -1,0 +1,160 @@
+{% extends 'base.html' %}
+{% block title %}จัดการผู้ใช้ – ERP{% endblock %}
+{% block page_title %}จัดการผู้ใช้{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+
+  {# ── User list ── #}
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header">
+        <i class="bi bi-people me-2"></i>รายชื่อผู้ใช้ ({{ users | length }})
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead>
+            <tr>
+              <th>ชื่อผู้ใช้</th>
+              <th>ชื่อแสดง</th>
+              <th class="text-center">บทบาท</th>
+              <th class="text-center">สถานะ</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for u in users %}
+            <tr>
+              <td class="font-mono">{{ u.username }}</td>
+              <td>{{ u.display_name or '–' }}</td>
+              <td class="text-center">
+                {% if u.role == 'admin' %}
+                  <span class="badge bg-danger">Admin</span>
+                {% elif u.role == 'manager' %}
+                  <span class="badge bg-warning text-dark">Manager</span>
+                {% else %}
+                  <span class="badge bg-secondary">Staff</span>
+                {% endif %}
+              </td>
+              <td class="text-center">
+                {% if u.is_active %}
+                  <span class="badge bg-success">ใช้งาน</span>
+                {% else %}
+                  <span class="badge bg-light text-muted">ปิด</span>
+                {% endif %}
+              </td>
+              <td class="text-end">
+                <button class="btn btn-xs btn-outline-secondary"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#edit-{{ u.id }}">
+                  <i class="bi bi-pencil"></i>
+                </button>
+              </td>
+            </tr>
+            <tr class="collapse" id="edit-{{ u.id }}">
+              <td colspan="5" class="bg-light py-3 px-4">
+                <form method="post" action="{{ url_for('user_edit', uid=u.id) }}">
+                  <div class="row g-2 align-items-end">
+                    <div class="col-sm-3">
+                      <label class="form-label small mb-1">ชื่อแสดง</label>
+                      <input type="text" name="display_name" class="form-control form-control-sm"
+                             value="{{ u.display_name or '' }}">
+                    </div>
+                    <div class="col-sm-2">
+                      <label class="form-label small mb-1">บทบาท</label>
+                      <select name="role" class="form-select form-select-sm">
+                        <option value="admin"   {% if u.role=='admin' %}selected{% endif %}>Admin</option>
+                        <option value="manager" {% if u.role=='manager' %}selected{% endif %}>Manager</option>
+                        <option value="staff"   {% if u.role=='staff' %}selected{% endif %}>Staff</option>
+                      </select>
+                    </div>
+                    <div class="col-sm-3">
+                      <label class="form-label small mb-1">รหัสผ่านใหม่ (ว่าง = ไม่เปลี่ยน)</label>
+                      <input type="password" name="password" class="form-control form-control-sm"
+                             placeholder="ใหม่...">
+                    </div>
+                    <div class="col-sm-2">
+                      <div class="form-check mt-4">
+                        <input class="form-check-input" type="checkbox" name="is_active"
+                               id="active-{{ u.id }}" {% if u.is_active %}checked{% endif %}>
+                        <label class="form-check-label small" for="active-{{ u.id }}">เปิดใช้งาน</label>
+                      </div>
+                    </div>
+                    <div class="col-sm-2 text-end">
+                      <button type="submit" class="btn btn-primary btn-sm">บันทึก</button>
+                    </div>
+                  </div>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  {# ── Add user ── #}
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header">
+        <i class="bi bi-person-plus me-2"></i>เพิ่มผู้ใช้ใหม่
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('user_new') }}">
+          <div class="mb-3">
+            <label class="form-label">ชื่อผู้ใช้ (username)</label>
+            <input type="text" name="username" class="form-control" required
+                   placeholder="เช่น somchai" autocomplete="off">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">ชื่อแสดง</label>
+            <input type="text" name="display_name" class="form-control"
+                   placeholder="เช่น สมชาย ใจดี">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">บทบาท</label>
+            <select name="role" class="form-select">
+              <option value="staff" selected>Staff — นำเข้าไฟล์สัปดาห์, ดูสต็อก</option>
+              <option value="manager">Manager — เห็นต้นทุน/กำไร, import payment</option>
+              <option value="admin">Admin — เต็มสิทธิ์</option>
+            </select>
+            <div class="form-text text-muted small mt-1">
+              <strong>Staff</strong>: import ไฟล์สัปดาห์ + ดูยอดขาย (ไม่เห็นต้นทุน)<br>
+              <strong>Manager</strong>: เห็นต้นทุน GP + สถานะชำระหนี้<br>
+              <strong>Admin</strong>: จัดการสินค้า, ผู้ใช้, ทุกอย่าง
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">รหัสผ่าน</label>
+            <input type="password" name="password" class="form-control" required
+                   placeholder="อย่างน้อย 8 ตัวอักษร">
+          </div>
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-person-plus me-1"></i>เพิ่มผู้ใช้
+          </button>
+        </form>
+      </div>
+    </div>
+
+    {# Role summary #}
+    <div class="card mt-3">
+      <div class="card-header small"><i class="bi bi-shield-check me-1"></i>สิทธิ์แต่ละ Role</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0 small">
+          <thead><tr><th>ฟีเจอร์</th><th class="text-center">Staff</th><th class="text-center">Mgr</th><th class="text-center">Admin</th></tr></thead>
+          <tbody>
+            <tr><td>ดูสต็อก/ยอดขาย</td><td class="text-center">✅</td><td class="text-center">✅</td><td class="text-center">✅</td></tr>
+            <tr><td>Import ไฟล์สัปดาห์</td><td class="text-center">✅</td><td class="text-center">✅</td><td class="text-center">✅</td></tr>
+            <tr><td>เห็นราคาทุน / GP</td><td class="text-center">❌</td><td class="text-center">✅</td><td class="text-center">✅</td></tr>
+            <tr><td>สถานะชำระหนี้</td><td class="text-center">❌</td><td class="text-center">✅</td><td class="text-center">✅</td></tr>
+            <tr><td>แก้ไขข้อมูลสินค้า</td><td class="text-center">❌</td><td class="text-center">❌</td><td class="text-center">✅</td></tr>
+            <tr><td>จัดการผู้ใช้</td><td class="text-center">❌</td><td class="text-center">❌</td><td class="text-center">✅</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
