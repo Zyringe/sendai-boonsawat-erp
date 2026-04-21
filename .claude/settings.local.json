@@ -80,7 +80,10 @@
       "Bash(curl -sv -c /tmp/erp2.txt -X POST http://localhost:5001/login -d 'username=admin&password=sendai12345')",
       "Bash(curl -s -b /tmp/erp2.txt http://localhost:5001/users)",
       "Bash(curl -s -b /tmp/erp2.txt http://localhost:5001/)",
-      "Bash(curl -s http://localhost:5001/users)"
+      "Bash(curl -s http://localhost:5001/users)",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   }
 }
