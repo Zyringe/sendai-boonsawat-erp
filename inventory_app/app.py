@@ -1168,5 +1168,32 @@ def ecommerce_sku_edit(sku_id):
                             q=request.form.get('q', '')))
 
 
+# ── Temp DB upload (admin only — remove after use) ────────────────────────────
+
+@app.route('/admin/upload-db', methods=['GET', 'POST'])
+def upload_db():
+    if session.get('role') != 'admin':
+        abort(403)
+    if request.method == 'POST':
+        f = request.files.get('db_file')
+        if not f or not f.filename.endswith('.db'):
+            flash('กรุณาเลือกไฟล์ .db', 'danger')
+            return redirect(request.url)
+        import shutil, tempfile
+        tmp = tempfile.mktemp(suffix='.db')
+        f.save(tmp)
+        dest = config.DATABASE_PATH
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.move(tmp, dest)
+        flash(f'อัปโหลด database สำเร็จ → {dest}', 'success')
+        return redirect(url_for('dashboard'))
+    return '''<!doctype html><html><body>
+    <h2>Upload Database (Admin Only)</h2>
+    <form method=post enctype=multipart/form-data>
+      <input type=file name=db_file accept=".db">
+      <button type=submit>Upload</button>
+    </form></body></html>'''
+
+
 if __name__ == '__main__':
     app.run(debug=True, port=5001, use_reloader=False)
