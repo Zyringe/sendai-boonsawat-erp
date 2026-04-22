@@ -1168,6 +1168,25 @@ def ecommerce_sku_edit(sku_id):
                             q=request.form.get('q', '')))
 
 
+# ── Temp: reset admin password via secret token ───────────────────────────────
+
+@app.route('/admin/reset-admin/<token>')
+def reset_admin(token):
+    if token != 'sendai-reset-2026':
+        abort(404)
+    conn = get_connection()
+    existing = conn.execute("SELECT id FROM users WHERE username='admin'").fetchone()
+    if existing:
+        conn.execute("UPDATE users SET password_hash=?, is_active=1 WHERE username='admin'",
+                     (generate_password_hash('admin1234'),))
+    else:
+        conn.execute("INSERT INTO users(username,password_hash,display_name,role) VALUES(?,?,?,?)",
+                     ('admin', generate_password_hash('admin1234'), 'Administrator', 'admin'))
+    conn.commit()
+    conn.close()
+    return '<h2>Reset สำเร็จ — username: admin / password: admin1234</h2><a href="/login">Login</a>'
+
+
 # ── Temp DB upload (admin only — remove after use) ────────────────────────────
 
 @app.route('/admin/upload-db', methods=['GET', 'POST'])
