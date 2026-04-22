@@ -18,7 +18,7 @@
             <label class="form-label">เลือกไฟล์ CSV</label>
             <input type="file" name="weekly_file" class="form-control" accept=".csv" required>
           </div>
-          {% if is_admin %}
+          {% if current_user %}
           <button type="submit" class="btn btn-primary w-100">
             <i class="bi bi-cloud-upload me-2"></i>นำเข้าข้อมูล
           </button>
