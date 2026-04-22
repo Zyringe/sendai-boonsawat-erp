@@ -5,7 +5,7 @@ import sys
 from datetime import date
 
 from flask import (Flask, render_template, request, redirect, url_for,
-                   flash, session, jsonify, abort)
+                   flash, session, jsonify, abort, send_file)
 from werkzeug.security import generate_password_hash, check_password_hash
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -173,6 +173,14 @@ def user_edit(uid):
     flash('อัปเดตผู้ใช้สำเร็จ', 'success')
     return redirect(url_for('user_list'))
 
+
+# ── Temp: Download DB (ลบออกหลังใช้) ─────────────────────────────────────────
+
+@app.route('/admin/download-db')
+def download_db():
+    if session.get('role') != 'admin':
+        abort(403)
+    return send_file(config.DATABASE_PATH, as_attachment=True, download_name='inventory.db')
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
