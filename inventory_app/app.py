@@ -811,6 +811,8 @@ def mapping_save():
                 'cost_price': 0.0,
                 'base_sell_price': 0.0,
                 'low_stock_threshold': config.LOW_STOCK_DEFAULT_THRESHOLD,
+                'shopee_stock': 0,
+                'lazada_stock': 0,
             })
             models.upsert_mapping(bsn_code, item['bsn_name'], product_id=pid)
         elif action == 'ignore':
