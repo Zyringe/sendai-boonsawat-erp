@@ -62,16 +62,17 @@ def inject_auth():
 
 
 @app.before_request
-def require_login_for_writes():
-    if request.method != 'POST':
-        return
+def require_login():
     endpoint = request.endpoint
-    if endpoint == 'login':
+    # Allow static files and login page without authentication
+    if endpoint in ('login', 'static'):
         return
     role = session.get('role', '')
     if not role:
         flash('กรุณาเข้าสู่ระบบก่อน', 'warning')
         return redirect(url_for('login', next=request.url))
+    if request.method != 'POST':
+        return
     if role == 'staff' and endpoint not in _STAFF_POST_OK:
         flash('ไม่มีสิทธิ์ดำเนินการนี้', 'danger')
         return redirect(url_for('dashboard'))
