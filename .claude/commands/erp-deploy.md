@@ -60,39 +60,18 @@ DATA_DIR        = /data
 
 ## Database Migration (Local → Railway)
 
-### วิธีที่แนะนำ (ไม่ต้องใช้ Railway CLI)
+### วิธีที่แนะนำ — Toggle Upload/Download ใน Sidebar (ถาวรแล้ว ไม่ต้องเพิ่ม temp route)
 
-**ขั้นที่ 1** — เพิ่ม route ชั่วคราวใน `app.py`:
+routes `/admin/upload-db` และ `/admin/download-db` มีอยู่ใน codebase แล้ว แต่ถูกป้องกันด้วย flag:
+- `app.config['DB_ROUTES_ENABLED']` default=**False** ทุกครั้งที่ server restart
+- Admin กดปุ่ม **"เปิด Upload/Download DB"** ใน sidebar → routes เปิด
+- หลังใช้งานเสร็จ กดปิด หรือปล่อยให้ Railway redeploy ปิดให้อัตโนมัติ
 
-```python
-@app.route('/admin/upload-db', methods=['GET', 'POST'])
-def upload_db():
-    if session.get('role') != 'admin':
-        abort(403)
-    if request.method == 'POST':
-        f = request.files.get('db_file')
-        if not f or not f.filename.endswith('.db'):
-            flash('กรุณาเลือกไฟล์ .db', 'danger')
-            return redirect(request.url)
-        import shutil, tempfile
-        tmp = tempfile.mktemp(suffix='.db')
-        f.save(tmp)
-        dest = config.DATABASE_PATH
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        shutil.move(tmp, dest)
-        flash(f'อัปโหลด database สำเร็จ → {dest}', 'success')
-        return redirect(url_for('dashboard'))
-    return '''<!doctype html><html><body>
-    <h2>Upload Database (Admin Only)</h2>
-    <form method=post enctype=multipart/form-data>
-      <input type=file name=db_file accept=".db">
-      <button type=submit>Upload</button>
-    </form></body></html>'''
-```
-
-**ขั้นที่ 2** — push → deploy → ไปที่ `/admin/upload-db` → upload `instance/inventory.db`
-
-**ขั้นที่ 3** — ลบ route ทิ้งแล้ว push ใหม่
+**ขั้นตอน upload local DB ขึ้น Railway:**
+1. Login production เป็น admin
+2. กด **"เปิด Upload/Download DB"** ใน sidebar
+3. กด **"Upload Database"** → เลือกไฟล์ `inventory_app/instance/inventory.db`
+4. กด **"ปิด Upload/Download DB"** หลังเสร็จ
 
 ---
 

@@ -94,7 +94,14 @@
       "Bash(curl -s -H \"Authorization: token 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\" https://api.github.com/user)",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('login:', d.get\\('login'\\)\\); print\\('message:', d.get\\('message'\\)\\)\")",
       "Bash(curl -sI -H \"Authorization: token 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\" https://api.github.com/user)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(gh pr create --title 'Fix import_weekly button not visible for staff/manager' --body ' *)",
+      "Bash(/opt/homebrew/bin/gh pr create --title 'Fix import_weekly button not visible for staff/manager' --body ' *)",
+      "Bash(curl -s -X POST -H 'Authorization: token __CMDSUB_OUTPUT__')",
+      "Bash(gh pr *)",
+      "Bash(/opt/homebrew/bin/gh pr *)",
+      "Bash(curl -s -H \"Authorization: token $\\(git remote get-url origin)",
+      "Bash(python3 -c \"import sys,json; prs=json.load\\(sys.stdin\\); print\\(prs[0]['html_url'] if prs else 'none'\\)\")"
     ]
   }
 }

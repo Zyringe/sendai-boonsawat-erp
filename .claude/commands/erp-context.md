@@ -218,6 +218,20 @@ ERP/
 - Import HS ที่หาย: `HS6700002-1`, `HS6700020-1`, `HS6700006-2`
 - อัปเดต 28 rows ที่ bsn_code ไม่ตรงกับ recheck file ให้ตรงตาม CSV
 
+## การเปลี่ยนแปลงในเซสชัน 2026-04-23
+- **แก้หน่วย ใบมีดคัตเตอร์เฉียง 30 องศา เล็ก** (product_id=726, sku=759):
+  - unit_type: โหล → **หลอด** (12 หลอด = 1 โหล)
+  - cost_price: 190 → 15.8333 บาท/หลอด
+  - unit_conversions: หล ratio 1→**12**, หด/!หด คงที่ ratio=1
+  - stock: 97 หลอด
+  - แก้ IV6900487-1: unit หล→หด (BSN บันทึกผิด, ราคา 39 บาท = ราคาหลอด ไม่ใช่โหล)
+  - หมายเหตุ: หด/!หด ใน BSN = หลอด (ratio=1), หล = โหล (ratio=12)
+- **เพิ่มฟีเจอร์ Toggle Upload/Download DB** ใน admin sidebar:
+  - `app.config['DB_ROUTES_ENABLED']` default=False (reset ทุก restart)
+  - ปุ่ม toggle ใน sidebar (admin only) → เปิด/ปิด link Upload/Download
+  - template: `templates/admin_upload_db.html`
+  - PR #1: https://github.com/Zyringe/sendai-boonsawat-erp/pull/1
+
 ## การเปลี่ยนแปลงในเซสชัน 2026-04-20
 - แก้บิล net=0 แต่ total>0 จำนวน 12 rows (IV6800557 → ยอด 804 บาท)
 - แก้ filter payment queries: เพิ่ม `HAVING total_net > 0` และ `HAVING outstanding_amount > 0` เพื่อกรองบิล/ลูกค้าที่ยอดเป็น 0 ออก
