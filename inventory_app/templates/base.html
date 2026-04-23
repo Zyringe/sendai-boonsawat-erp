@@ -96,6 +96,25 @@
        class="sidebar-link {% if request.endpoint in ['user_list','user_new','user_edit'] %}active{% endif %}">
       <i class="bi bi-people"></i> จัดการผู้ใช้
     </a>
+    <form method="post" action="{{ url_for('toggle_db_routes') }}" class="d-grid px-2 mt-1">
+      <button type="submit" class="btn btn-sm {% if db_routes_enabled %}btn-warning{% else %}btn-outline-secondary{% endif %}">
+        <i class="bi bi-database{% if db_routes_enabled %}-fill{% endif %}"></i>
+        {% if db_routes_enabled %}
+          ปิด Upload/Download DB
+        {% else %}
+          เปิด Upload/Download DB
+        {% endif %}
+      </button>
+    </form>
+    {% if db_routes_enabled %}
+    <a href="{{ url_for('upload_db') }}"
+       class="sidebar-link {% if request.endpoint == 'upload_db' %}active{% endif %}">
+      <i class="bi bi-cloud-upload"></i> Upload Database
+    </a>
+    <a href="{{ url_for('download_db') }}" class="sidebar-link">
+      <i class="bi bi-cloud-download"></i> Download Database
+    </a>
+    {% endif %}
     {% endif %}
 
   </nav>

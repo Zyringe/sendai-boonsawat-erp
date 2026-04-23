@@ -22,6 +22,7 @@ app.config['SECRET_KEY'] = config.SECRET_KEY
 app.config['JSON_AS_ASCII'] = False
 app.config['UPLOAD_FOLDER'] = config.UPLOAD_FOLDER
 app.config['ITEMS_PER_PAGE'] = config.ITEMS_PER_PAGE
+app.config['DB_ROUTES_ENABLED'] = False
 
 os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
 
@@ -56,6 +57,7 @@ def inject_auth():
         'current_user': session.get('display_name', ''),
         'current_role': role,
         'alert_count': models.count_stock_alerts(),
+        'db_routes_enabled': app.config['DB_ROUTES_ENABLED'],
     }
 
 
@@ -176,11 +178,43 @@ def user_edit(uid):
 
 # ── Temp: Download DB (ลบออกหลังใช้) ─────────────────────────────────────────
 
+@app.route('/admin/toggle-db-routes', methods=['POST'])
+def toggle_db_routes():
+    if session.get('role') != 'admin':
+        abort(403)
+    app.config['DB_ROUTES_ENABLED'] = not app.config['DB_ROUTES_ENABLED']
+    state = 'เปิด' if app.config['DB_ROUTES_ENABLED'] else 'ปิด'
+    flash(f'{state}การเข้าถึง Upload/Download Database แล้ว', 'success')
+    return redirect(request.referrer or url_for('dashboard'))
+
+
 @app.route('/admin/download-db')
 def download_db():
     if session.get('role') != 'admin':
         abort(403)
+    if not app.config['DB_ROUTES_ENABLED']:
+        abort(403)
     return send_file(config.DATABASE_PATH, as_attachment=True, download_name='inventory.db')
+
+
+@app.route('/admin/upload-db', methods=['GET', 'POST'])
+def upload_db():
+    if session.get('role') != 'admin':
+        abort(403)
+    if not app.config['DB_ROUTES_ENABLED']:
+        abort(403)
+    if request.method == 'POST':
+        f = request.files.get('db_file')
+        if not f or not f.filename.endswith('.db'):
+            flash('กรุณาเลือกไฟล์ .db', 'danger')
+            return redirect(request.url)
+        import shutil, tempfile
+        tmp = tempfile.mktemp(suffix='.db')
+        f.save(tmp)
+        shutil.move(tmp, config.DATABASE_PATH)
+        flash('อัปโหลด database สำเร็จ', 'success')
+        return redirect(url_for('dashboard'))
+    return render_template('admin_upload_db.html')
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
