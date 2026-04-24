@@ -101,7 +101,48 @@ def reset_admin(token):
 
 ---
 
-## Push to GitHub
+## Push to GitHub & สร้าง PR
+
+> ⚠️ `gh` CLI **ไม่ได้ติดตั้ง** — ใช้ curl + GitHub API แทนทุกครั้ง
+
+### Branch naming convention
+```
+fix/<topic>       — แก้บัค เช่น fix/mapping-create-product
+feature/<topic>   — ฟีเจอร์ใหม่ เช่น feature/auth-login-required
+```
+
+### Push command
+```bash
+# ครั้งแรก (ตั้ง token ใน remote URL)
+git remote set-url origin https://TOKEN@github.com/Zyringe/sendai-boonsawat-erp.git
+
+# สร้าง branch ใหม่แล้ว push
+git checkout -b fix/<topic>
+git add <files>
+git commit -m "short description"
+git push -u origin fix/<topic>
+
+# branch เดิมที่มีอยู่แล้ว
+git push
+```
+
+### สร้าง PR ด้วย curl (ไม่ต้องใช้ gh)
+```bash
+curl -s -X POST \
+  -H "Authorization: token $(git remote get-url origin | sed 's/https:\/\/\(.*\)@github.com.*/\1/')" \
+  -H "Content-Type: application/json" \
+  https://api.github.com/repos/Zyringe/sendai-boonsawat-erp/pulls \
+  -d "$(cat <<'EOF'
+{
+  "title": "PR title here",
+  "head": "fix/<branch-name>",
+  "base": "main",
+  "body": "## Summary\n- bullet 1\n- bullet 2\n\n## Changes\n- `file.py`: what changed"
+}
+EOF
+)" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('html_url') or d.get('message'))"
+```
+คำสั่งนี้จะ print URL ของ PR ที่สร้างได้ทันที
 
 ### ปัญหาที่พบบ่อย
 
@@ -113,12 +154,6 @@ def reset_admin(token):
 - เกิดจากมี token/secret ใน `.claude/settings.local.json` (จาก allowed commands)
 - Railway/GitHub จะให้ URL เพื่อ unblock → ไปกด "Allow secret" (token เก่าที่ revoke แล้วไม่มีความเสี่ยง)
 - อย่าแชร์ token ใน chat
-
-**3. Push command**
-```bash
-git remote set-url origin https://TOKEN@github.com/Zyringe/sendai-boonsawat-erp.git
-git push -u origin main
-```
 
 ---
 

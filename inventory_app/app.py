@@ -42,10 +42,12 @@ _STAFF_POST_OK = frozenset([
     'login', 'logout',
     'import_weekly', 'mapping_save', 'unit_conversions_save', 'unit_conversions_edit',
     'product_location_save',
+    'admin_exit_simulate',
+    'conversion_new', 'conversion_edit',
 ])
 _MANAGER_POST_OK = _STAFF_POST_OK | frozenset([
     'import_payments', 'product_online_stock',
-    'conversion_run', 'conversion_new', 'conversion_edit',
+    'conversion_run', 'conversion_new', 'conversion_edit', 'conversion_delete',
 ])
 # admin can POST anything
 
@@ -53,12 +55,15 @@ _MANAGER_POST_OK = _STAFF_POST_OK | frozenset([
 @app.context_processor
 def inject_auth():
     role = session.get('role', '')
+    real_role = session.get('_real_role')
     return {
-        'is_admin':    role == 'admin',
-        'is_manager':  role in ('admin', 'manager'),
-        'current_user': session.get('display_name', ''),
-        'current_role': role,
-        'alert_count': models.count_stock_alerts(),
+        'is_admin':      role == 'admin',
+        'is_manager':    role in ('admin', 'manager'),
+        'current_user':  session.get('display_name', ''),
+        'current_role':  role,
+        'simulating_as': role if real_role else None,
+        'real_role':     real_role,
+        'alert_count':   models.count_stock_alerts(),
         'db_routes_enabled': app.config['DB_ROUTES_ENABLED'],
     }
 
@@ -177,6 +182,49 @@ def user_edit(uid):
     conn.close()
     flash('อัปเดตผู้ใช้สำเร็จ', 'success')
     return redirect(url_for('user_list'))
+
+
+@app.route('/users/<int:uid>/delete', methods=['POST'])
+def user_delete(uid):
+    if session.get('role') != 'admin':
+        abort(403)
+    conn = get_connection()
+    target = conn.execute("SELECT id, role, username FROM users WHERE id=?", (uid,)).fetchone()
+    if not target:
+        flash('ไม่พบผู้ใช้', 'danger')
+    elif target['role'] == 'admin':
+        flash('ไม่สามารถลบบัญชี Admin ได้', 'danger')
+    elif target['id'] == session.get('user_id'):
+        flash('ไม่สามารถลบบัญชีของตัวเองได้', 'danger')
+    else:
+        conn.execute("DELETE FROM users WHERE id=?", (uid,))
+        conn.commit()
+        flash(f'ลบผู้ใช้ {target["username"]} สำเร็จ', 'success')
+    conn.close()
+    return redirect(url_for('user_list'))
+
+
+@app.route('/admin/simulate-role', methods=['POST'])
+def admin_simulate_role():
+    if session.get('role') != 'admin' and not session.get('_real_role'):
+        abort(403)
+    target_role = request.form.get('role', '')
+    if target_role not in ('manager', 'staff'):
+        flash('Role ไม่ถูกต้อง', 'danger')
+        return redirect(url_for('user_list'))
+    session['_real_role'] = session.get('_real_role') or 'admin'
+    session['role'] = target_role
+    flash(f'กำลังจำลองเป็น {target_role} — คลิก "ออกจากโหมดจำลอง" เพื่อกลับ', 'info')
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/admin/exit-simulate', methods=['POST'])
+def admin_exit_simulate():
+    real_role = session.pop('_real_role', None)
+    if real_role:
+        session['role'] = real_role
+        flash('ออกจากโหมดจำลองแล้ว กลับเป็น Admin', 'success')
+    return redirect(url_for('dashboard'))
 
 
 # ── Temp: Download DB (ลบออกหลังใช้) ─────────────────────────────────────────
@@ -892,6 +940,28 @@ def customer_summary(customer_name):
                            unpaid_bills=unpaid_bills, unpaid_total=unpaid_total)
 
 
+@app.route('/suppliers')
+def supplier_list():
+    search   = request.args.get('q', '').strip()
+    page     = int(request.args.get('page', 1))
+    per_page = app.config['ITEMS_PER_PAGE']
+    suppliers, total = models.get_suppliers(
+        search=search or None, page=page, per_page=per_page
+    )
+    pages = (total + per_page - 1) // per_page
+    return render_template('suppliers.html',
+                           suppliers=suppliers, total=total,
+                           page=page, pages=pages, search=search)
+
+
+@app.route('/supplier/<path:supplier_name>')
+def supplier_summary(supplier_name):
+    date_from = request.args.get('date_from') or None
+    date_to   = request.args.get('date_to')   or None
+    data = models.get_supplier_summary(supplier_name, date_from, date_to)
+    return render_template('supplier_summary.html', data=data)
+
+
 @app.route('/sales')
 def sales_view():
     today = date.today()
@@ -1247,7 +1317,7 @@ def _get_active_products():
 
 @app.route('/conversions/new', methods=['GET', 'POST'])
 def conversion_new():
-    if session.get('role') not in ('admin', 'manager'):
+    if not session.get('role'):
         abort(403)
     products = _get_active_products()
     if request.method == 'POST':
@@ -1275,7 +1345,7 @@ def conversion_new():
 
 @app.route('/conversions/<int:formula_id>/edit', methods=['GET', 'POST'])
 def conversion_edit(formula_id):
-    if session.get('role') not in ('admin', 'manager'):
+    if not session.get('role'):
         abort(403)
     formula, inputs = models.get_conversion_formula(formula_id)
     if not formula:
@@ -1326,6 +1396,15 @@ def conversion_run(formula_id):
             return redirect(url_for('conversion_list'))
 
     return render_template('conversions/run.html', formula=formula, inputs=inputs)
+
+
+@app.route('/conversions/<int:formula_id>/delete', methods=['POST'])
+def conversion_delete(formula_id):
+    if session.get('role') not in ('admin', 'manager'):
+        abort(403)
+    models.delete_conversion_formula(formula_id)
+    flash('ลบสูตรเรียบร้อยแล้ว', 'success')
+    return redirect(url_for('conversion_list'))
 
 
 @app.route('/conversions/<int:formula_id>/deactivate', methods=['POST'])
