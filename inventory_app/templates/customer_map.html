@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}แผนที่ลูกค้า{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  #map { height: calc(100vh - 220px); min-height: 500px; border-radius: 8px; }
+  .leaflet-popup-content { font-size: 13px; min-width: 220px; }
+  .leaflet-popup-content strong { font-size: 14px; }
+  .badge-zone { font-size: 11px; }
+  #geocode-progress { font-size: 13px; }
+  #geocode-log { max-height: 120px; overflow-y: auto; font-size: 12px; }
+  .filter-bar { gap: .5rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-geo-alt me-2 text-danger"></i>แผนที่ลูกค้า</h4>
+  <div class="d-flex align-items-center gap-2">
+    <span id="geocode-progress" class="text-muted">
+      geocoded: <strong id="geo-done">{{ geocoded }}</strong> / {{ total }}
+    </span>
+    {% if session.get('role') == 'admin' %}
+    <button class="btn btn-sm btn-outline-primary" id="btn-geocode-all">
+      <i class="bi bi-lightning me-1"></i>Geocode ทั้งหมด
+    </button>
+    <form method="post" action="{{ url_for('customer_import_bsn') }}" class="d-inline">
+      <button class="btn btn-sm btn-outline-secondary" onclick="return confirm('นำเข้าข้อมูลลูกค้าจาก BSN CSV ใหม่?')">
+        <i class="bi bi-upload me-1"></i>Import BSN
+      </button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="d-flex filter-bar flex-wrap mb-3">
+  <form method="get" class="d-flex gap-2 flex-wrap">
+    <select name="zone" class="form-select form-select-sm" style="width:auto">
+      <option value="">— ทุกเขต —</option>
+      {% for z in zones %}<option value="{{ z }}" {% if z == sel_zone %}selected{% endif %}>{{ z }}</option>{% endfor %}
+    </select>
+    <select name="type" class="form-select form-select-sm" style="width:auto">
+      <option value="">— ทุกประเภท —</option>
+      {% for t in ctypes %}<option value="{{ t }}" {% if t == sel_type %}selected{% endif %}>{{ t }}</option>{% endfor %}
+    </select>
+    <button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-funnel"></i> กรอง</button>
+    <a href="{{ url_for('customer_map') }}" class="btn btn-sm btn-outline-secondary">ล้าง</a>
+  </form>
+  <div class="ms-auto d-flex align-items-center gap-2">
+    <span class="badge bg-secondary">ทั้งหมด {{ customers_json|length }} ราย</span>
+    <span class="badge bg-success" id="map-pin-count">0 pins</span>
+  </div>
+</div>
+
+<!-- Geocode log (admin) -->
+{% if session.get('role') == 'admin' %}
+<div id="geocode-log" class="mb-2 d-none border rounded p-2 bg-light font-monospace"></div>
+{% endif %}
+
+<div id="map"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const ALL_CUSTOMERS = {{ customers_json | tojson }};
+const GEOCODE_URL_BASE = "{{ url_for('customer_geocode', code='__CODE__') }}";
+
+// ── Map init ──────────────────────────────────────────────────────────────────
+const map = L.map('map').setView([13.75, 100.5], 6);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  maxZoom: 19
+}).addTo(map);
+
+// Zone colours
+const ZONE_COLORS = {};
+const PALETTE = ['#e74c3c','#3498db','#2ecc71','#f39c12','#9b59b6',
+                 '#1abc9c','#e67e22','#34495e','#c0392b','#16a085'];
+let colorIdx = 0;
+function zoneColor(z) {
+  if (!ZONE_COLORS[z]) ZONE_COLORS[z] = PALETTE[colorIdx++ % PALETTE.length];
+  return ZONE_COLORS[z];
+}
+
+function makeIcon(color) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="36" viewBox="0 0 24 36">
+    <path d="M12 0C5.37 0 0 5.37 0 12c0 9 12 24 12 24S24 21 24 12C24 5.37 18.63 0 12 0z"
+          fill="${color}" stroke="#fff" stroke-width="1.5"/>
+    <circle cx="12" cy="12" r="5" fill="#fff" opacity=".8"/>
+  </svg>`;
+  return L.divIcon({
+    html: svg, className: '', iconSize: [24, 36], iconAnchor: [12, 36], popupAnchor: [0, -36]
+  });
+}
+
+const markers = L.layerGroup().addTo(map);
+let pinCount = 0;
+
+function renderMarkers() {
+  markers.clearLayers();
+  pinCount = 0;
+  ALL_CUSTOMERS.forEach(c => {
+    if (c.lat == null || c.lng == null) return;
+    pinCount++;
+    const color = zoneColor(c.zone || '?');
+    const m = L.marker([c.lat, c.lng], { icon: makeIcon(color) });
+    m.bindPopup(`
+      <strong>${c.name}</strong><br>
+      <span class="text-muted">${c.code}</span>
+      <span class="badge badge-zone ms-1" style="background:${color}">${c.zone || '-'}</span><br>
+      <small>${c.customer_type || ''}</small><br>
+      ${c.address ? `<div class="mt-1 text-muted">${c.address}</div>` : ''}
+      ${c.phone ? `<div><i class="bi bi-telephone"></i> ${c.phone}</div>` : ''}
+      ${c.credit_days ? `<div>เครดิต ${c.credit_days} วัน</div>` : ''}
+    `);
+    markers.addLayer(m);
+  });
+  document.getElementById('map-pin-count').textContent = pinCount + ' pins';
+  if (pinCount > 0) {
+    const latlngs = ALL_CUSTOMERS.filter(c => c.lat).map(c => [c.lat, c.lng]);
+    map.fitBounds(L.latLngBounds(latlngs).pad(0.1));
+  }
+}
+
+renderMarkers();
+
+// ── Legend ────────────────────────────────────────────────────────────────────
+setTimeout(() => {
+  if (Object.keys(ZONE_COLORS).length === 0) return;
+  const legend = L.control({ position: 'bottomright' });
+  legend.onAdd = () => {
+    const div = L.DomUtil.create('div', 'leaflet-control leaflet-bar');
+    div.style.cssText = 'background:#fff;padding:8px 12px;font-size:12px;max-height:200px;overflow-y:auto';
+    div.innerHTML = '<strong>เขต</strong><br>' +
+      Object.entries(ZONE_COLORS).map(([z, c]) =>
+        `<div><span style="display:inline-block;width:12px;height:12px;background:${c};border-radius:50%;margin-right:4px"></span>${z}</div>`
+      ).join('');
+    return div;
+  };
+  legend.addTo(map);
+}, 200);
+
+// ── Geocode all (admin) ────────────────────────────────────────────────────────
+{% if session.get('role') == 'admin' %}
+const btn = document.getElementById('btn-geocode-all');
+const log = document.getElementById('geocode-log');
+const geoDone = document.getElementById('geo-done');
+let running = false;
+
+btn.addEventListener('click', async () => {
+  if (running) return;
+  const ungeocoded = ALL_CUSTOMERS.filter(c => c.lat == null);
+  if (ungeocoded.length === 0) { alert('geocoded ครบแล้ว'); return; }
+  if (!confirm(`จะ geocode ${ungeocoded.length} รายการ — ใช้เวลาประมาณ ${Math.ceil(ungeocoded.length * 1.2 / 60)} นาที`)) return;
+
+  running = true;
+  btn.disabled = true;
+  log.classList.remove('d-none');
+  let done = parseInt(geoDone.textContent) || 0;
+
+  for (const c of ungeocoded) {
+    const url = GEOCODE_URL_BASE.replace('__CODE__', encodeURIComponent(c.code));
+    try {
+      const res = await fetch(url, { method: 'POST', headers: { 'X-CSRFToken': '' } });
+      const data = await res.json();
+      if (data.ok) {
+        c.lat = data.lat; c.lng = data.lng;
+        done++;
+        geoDone.textContent = done;
+        log.innerHTML += `<div class="text-success">✓ ${c.code} ${c.name}</div>`;
+      } else {
+        log.innerHTML += `<div class="text-danger">✗ ${c.code} ${c.name} — ${data.reason || 'no result'}</div>`;
+      }
+    } catch (e) {
+      log.innerHTML += `<div class="text-warning">! ${c.code} — ${e}</div>`;
+    }
+    log.scrollTop = log.scrollHeight;
+    await new Promise(r => setTimeout(r, 1200)); // Nominatim rate limit 1 req/s
+  }
+
+  running = false;
+  btn.disabled = false;
+  renderMarkers();
+  log.innerHTML += '<div class="text-primary fw-bold">— เสร็จสิ้น —</div>';
+});
+{% endif %}
+</script>
+{% endblock %}
