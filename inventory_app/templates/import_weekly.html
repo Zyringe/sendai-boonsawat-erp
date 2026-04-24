@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
-{% block title %}นำเข้าข้อมูลรายสัปดาห์ – ERP{% endblock %}
-{% block page_title %}นำเข้าข้อมูลรายสัปดาห์{% endblock %}
+{% block title %}อัพเดทข้อมูล – ERP{% endblock %}
+{% block page_title %}อัพเดทข้อมูล{% endblock %}
 
 {% block content %}
 <div class="row g-3 justify-content-center">
@@ -9,9 +9,10 @@
       <div class="card-header"><i class="bi bi-upload me-2 text-accent"></i>อัปโหลดไฟล์ขาย / ซื้อ</div>
       <div class="card-body">
         <div class="alert alert-info mb-3">
-          <i class="bi bi-info-circle me-2"></i>
-          รองรับทั้งไฟล์ <strong>ขาย</strong> และ <strong>ซื้อ</strong> จากระบบ BSN<br>
-          <small class="text-subtle">ระบบตรวจสอบซ้ำอัตโนมัติ — อัปโหลดซ้ำได้อย่างปลอดภัย</small>
+          <i class="bi bi-box-arrow-up me-2"></i>
+          ดึงไฟล์ CSV จากโปรแกรม <strong>Express</strong> แล้วอัปโหลดที่นี่<br>
+          รองรับทั้งรายการ <strong>ขาย</strong> และ <strong>ซื้อ</strong><br>
+          <small class="text-subtle">หากมีข้อมูลเดิมอยู่แล้ว ระบบจะอัพเดทด้วยข้อมูลใหม่โดยอัตโนมัติ</small>
         </div>
         <form method="post" enctype="multipart/form-data">
           <div class="mb-4">
@@ -37,10 +38,10 @@
       <div class="card-header"><i class="bi bi-list-check me-2 text-accent"></i>วิธีใช้</div>
       <div class="card-body small">
         <ol class="ps-3 mb-0" style="line-height:2">
-          <li>Export ไฟล์ <strong>ขาย</strong> หรือ <strong>ซื้อ</strong> จาก BSN เป็น CSV</li>
+          <li>เปิดโปรแกรม <strong>Express</strong> → ดึงรายงาน <strong>ขาย</strong> หรือ <strong>ซื้อ</strong> เป็น CSV</li>
           <li>อัปโหลดที่นี่ — ระบบตรวจหาชนิดไฟล์เอง</li>
           <li>หากมีสินค้าไม่ตรง ระบบพาไปหน้า <strong>ผูกรหัส</strong></li>
-          <li>อัปโหลดทุกสัปดาห์ได้ — ไม่มีข้อมูลซ้ำ</li>
+          <li>ข้อมูลใหม่จะ<strong>ทับข้อมูลเก่า</strong>อัตโนมัติ</li>
         </ol>
       </div>
     </div>

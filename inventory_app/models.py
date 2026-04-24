@@ -725,7 +725,7 @@ def import_weekly(entries: list, file_type: str, filename: str) -> dict:
     )
     batch_id = cur.lastrowid
 
-    imported = skipped_dup = 0
+    imported = skipped_dup = overwritten = 0
     new_bsn_codes = {}   # code → name for codes not yet in mapping table
 
     for e in entries:
@@ -734,25 +734,36 @@ def import_weekly(entries: list, file_type: str, filename: str) -> dict:
         doc_base = doc_no.rsplit('-', 1)[0] if '-' in doc_no else doc_no
         is_weekly = (doc_no == doc_base)  # weekly format ไม่มี line suffix
 
-        # Duplicate check แบบ 2 โหมด:
-        # - Weekly (ไม่มี suffix เช่น IV6900527): ตรวจ doc_base + bsn_code
-        #   → จับทั้ง weekly ซ้ำ และ history-format (IV6900527-1) ที่มี doc_base เดียวกัน
-        # - History (มี suffix เช่น IV6900527-1): ตรวจ (doc_no = exact) OR (doc_no = doc_base)
-        #   → จับทั้ง exact re-import และ weekly-format ที่มี doc_no = doc_base อยู่แล้ว
-        #   → ยังคงให้สินค้าเดียวกัน 2 บรรทัดในบิลเดียว (IV6802738-14 และ -15) insert ได้
+        # Duplicate check แบบ 2 โหมด — ดึงแถวเก่ามาเพื่อ overwrite
         if is_weekly:
-            exists = conn.execute(
-                f"SELECT 1 FROM {table} WHERE doc_base = ? AND bsn_code = ? AND unit_price = ?",
+            old_rows = conn.execute(
+                f"SELECT id, product_id, doc_no, synced_to_stock FROM {table}"
+                f" WHERE doc_base = ? AND bsn_code = ? AND unit_price = ?",
                 (doc_base, e['product_code_raw'], e['unit_price'])
-            ).fetchone()
+            ).fetchall()
         else:
-            exists = conn.execute(
-                f"SELECT 1 FROM {table} WHERE bsn_code = ? AND (doc_no = ? OR doc_no = ?)",
+            old_rows = conn.execute(
+                f"SELECT id, product_id, doc_no, synced_to_stock FROM {table}"
+                f" WHERE bsn_code = ? AND (doc_no = ? OR doc_no = ?)",
                 (e['product_code_raw'], doc_no, doc_base)
-            ).fetchone()
-        if exists:
-            skipped_dup += 1
-            continue
+            ).fetchall()
+
+        if old_rows:
+            for old in old_rows:
+                # ถ้า sync ไปสต็อกแล้ว ให้ลบ transaction เดิมและคำนวณสต็อกใหม่
+                if old['synced_to_stock'] == 1 and old['product_id']:
+                    conn.execute(
+                        "DELETE FROM transactions WHERE product_id=? AND reference_no=? AND note LIKE 'BSN%'",
+                        (old['product_id'], old['doc_no'])
+                    )
+                    conn.execute("DELETE FROM stock_levels WHERE product_id=?", (old['product_id'],))
+                    conn.execute("""
+                        INSERT INTO stock_levels (product_id, quantity)
+                        SELECT product_id, COALESCE(SUM(quantity_change), 0)
+                        FROM transactions WHERE product_id=?
+                    """, (old['product_id'],))
+                conn.execute(f"DELETE FROM {table} WHERE id=?", (old['id'],))
+            overwritten += len(old_rows)
 
         # Resolve product_id via mapping table
         mapping = conn.execute(
@@ -806,6 +817,7 @@ def import_weekly(entries: list, file_type: str, filename: str) -> dict:
     return {
         'imported': imported,
         'skipped_dup': skipped_dup,
+        'overwritten': overwritten,
         'new_unmapped': len(new_bsn_codes),
         'batch_id': batch_id,
     }

@@ -180,6 +180,32 @@
           </tbody>
         </table>
       </div>
+
+      {% if current_role in ('admin', 'manager', 'staff') %}
+      <div class="card-body border-top pt-3 pb-3">
+        <div class="small fw-600 mb-2 text-subtle">
+          <i class="bi bi-geo-alt me-1"></i>แก้ไขสถานที่เก็บ
+        </div>
+        <form method="post" action="{{ url_for('product_location_save', product_id=product.id) }}" id="locationForm">
+          <div id="locationFields">
+            {% for loc in locations %}
+            <div class="d-flex gap-1 mb-1 location-row">
+              <input type="text" name="floor_no" value="{{ loc }}"
+                     class="form-control form-control-sm font-mono"
+                     placeholder="เช่น A1, B2">
+              <button type="button" class="btn btn-sm btn-outline-danger px-2" onclick="this.closest('.location-row').remove()">
+                <i class="bi bi-x"></i>
+              </button>
+            </div>
+            {% endfor %}
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-secondary w-100 mt-1 mb-2" onclick="addLocation()">
+            <i class="bi bi-plus me-1"></i>เพิ่มสถานที่
+          </button>
+          <button type="submit" class="btn btn-sm btn-primary w-100">บันทึก</button>
+        </form>
+      </div>
+      {% endif %}
     </div>
 
     {% if is_admin %}
@@ -355,6 +381,17 @@ function switchOnlineTab(platform, btn) {
     inp.value             = lazadaStock;
     confirmBtn.style.background = '#2563eb';
   }
+}
+
+function addLocation() {
+  const row = document.createElement('div');
+  row.className = 'd-flex gap-1 mb-1 location-row';
+  row.innerHTML = `<input type="text" name="floor_no" class="form-control form-control-sm font-mono" placeholder="เช่น A1, B2">
+    <button type="button" class="btn btn-sm btn-outline-danger px-2" onclick="this.closest('.location-row').remove()">
+      <i class="bi bi-x"></i>
+    </button>`;
+  document.getElementById('locationFields').appendChild(row);
+  row.querySelector('input').focus();
 }
 </script>
 {% endblock %}
