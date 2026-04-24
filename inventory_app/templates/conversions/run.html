@@ -1,0 +1,167 @@
+{% extends 'base.html' %}
+{% block title %}แปลงสินค้า: {{ formula.name }} – ERP{% endblock %}
+{% block page_title %}แปลงสินค้า{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('conversion_list') }}">สูตรแปลงสินค้า</a></li>
+    <li class="breadcrumb-item active">{{ formula.name }}</li>
+  </ol>
+</nav>
+
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+
+    {# ── สรุปสูตร ── #}
+    <div class="card mb-3">
+      <div class="card-header fw-500" style="background:#f0fdf4;color:#15803d">
+        <i class="bi bi-scissors me-2"></i>{{ formula.name }}
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>สินค้า</th>
+              <th class="text-end">ต่อครั้ง</th>
+              <th class="text-end">สต็อกปัจจุบัน</th>
+              <th class="text-end" id="neededHeader">ต้องใช้</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for inp in inputs %}
+            <tr>
+              <td>
+                <div class="fw-500 small">{{ inp.product_name }}</div>
+              </td>
+              <td class="text-end text-subtle small">
+                {{ inp.quantity | fmt_qty }} {{ inp.unit_type }}
+              </td>
+              <td class="text-end small" id="stock-{{ loop.index0 }}"
+                  data-stock="{{ inp.current_stock }}"
+                  data-qty="{{ inp.quantity }}">
+                <span class="{% if inp.current_stock < inp.quantity %}text-danger fw-500{% endif %}">
+                  {{ inp.current_stock | fmt_qty }}
+                </span>
+                <span class="text-subtle">{{ inp.unit_type }}</span>
+              </td>
+              <td class="text-end small" id="needed-{{ loop.index0 }}">
+                {{ inp.quantity | fmt_qty }} {{ inp.unit_type }}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot class="table-light">
+            <tr>
+              <td colspan="3" class="fw-500 text-success">
+                <i class="bi bi-arrow-up-circle me-1"></i>ได้: {{ formula.output_product_name }}
+              </td>
+              <td class="text-end fw-500 text-success" id="outputQty">
+                {{ formula.output_qty | fmt_qty }} {{ formula.output_unit_type }}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
+    {# ── ฟอร์มรัน ── #}
+    <div class="card">
+      <div class="card-body">
+        <form method="post">
+          <div class="mb-3">
+            <label class="form-label fw-500">จำนวนรอบ <span class="text-danger">*</span></label>
+            <div class="input-group">
+              <span class="input-group-text text-subtle">×</span>
+              <input type="number" name="multiplier" id="multiplier" class="form-control form-control-lg"
+                     min="1" value="1" required autofocus oninput="updatePreview()">
+              <span class="input-group-text text-subtle">รอบ</span>
+            </div>
+            <div class="form-text text-subtle" id="multiPreview"></div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">เลขที่เอกสาร / อ้างอิง</label>
+            <input type="text" name="reference_no" class="form-control"
+                   placeholder="เลขใบผลิต, อ้างอิง...">
+          </div>
+          <div class="mb-4">
+            <label class="form-label">หมายเหตุเพิ่มเติม</label>
+            <textarea name="note" class="form-control" rows="2"></textarea>
+          </div>
+
+          <div id="stockWarning" class="alert alert-danger d-none mb-3">
+            <i class="bi bi-exclamation-triangle me-2"></i>
+            <span id="stockWarningText"></span>
+          </div>
+
+          <div class="d-flex gap-2">
+            <a href="{{ url_for('conversion_list') }}" class="btn btn-outline-secondary flex-fill">ยกเลิก</a>
+            <button type="submit" id="submitBtn" class="btn btn-success flex-fill fw-500">
+              <i class="bi bi-play-fill me-1"></i>ยืนยันแปลงสินค้า
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const inputs = [
+  {% for inp in inputs %}
+  { stock: {{ inp.current_stock }}, qty: {{ inp.quantity }}, name: {{ inp.product_name | tojson }}, unit: {{ inp.unit_type | tojson }} }{% if not loop.last %},{% endif %}
+  {% endfor %}
+];
+const outputQtyBase  = {{ formula.output_qty }};
+const outputUnit     = {{ formula.output_unit_type | tojson }};
+const outputName     = {{ formula.output_product_name | tojson }};
+
+function fmt(n) { return n.toLocaleString('th-TH'); }
+
+function updatePreview() {
+  const m = parseInt(document.getElementById('multiplier').value) || 1;
+  let warnings = [];
+
+  inputs.forEach((inp, i) => {
+    const needed = inp.qty * m;
+    const stockEl = document.getElementById('stock-' + i);
+    const neededEl = document.getElementById('needed-' + i);
+    neededEl.textContent = fmt(needed) + ' ' + inp.unit;
+    const span = stockEl.querySelector('span:first-child');
+    if (inp.stock < needed) {
+      span.className = 'text-danger fw-500';
+      warnings.push(`${inp.name}: ต้องการ ${fmt(needed)} แต่มี ${fmt(inp.stock)} ${inp.unit}`);
+    } else {
+      span.className = '';
+    }
+  });
+
+  const totalOut = outputQtyBase * m;
+  document.getElementById('outputQty').textContent = fmt(totalOut) + ' ' + outputUnit;
+
+  const preview = document.getElementById('multiPreview');
+  preview.textContent = m > 1
+    ? `แปลง ${m} รอบ → ได้ ${fmt(totalOut)} ${outputUnit} ${outputName}`
+    : `แปลง 1 รอบ → ได้ ${fmt(outputQtyBase)} ${outputUnit} ${outputName}`;
+
+  const warnBox  = document.getElementById('stockWarning');
+  const warnText = document.getElementById('stockWarningText');
+  const btn      = document.getElementById('submitBtn');
+  if (warnings.length) {
+    warnText.textContent = 'สต็อกไม่พอ: ' + warnings.join(' | ');
+    warnBox.classList.remove('d-none');
+    btn.disabled = true;
+    btn.className = 'btn btn-secondary flex-fill fw-500';
+  } else {
+    warnBox.classList.add('d-none');
+    btn.disabled = false;
+    btn.className = 'btn btn-success flex-fill fw-500';
+  }
+}
+
+updatePreview();
+</script>
+{% endblock %}

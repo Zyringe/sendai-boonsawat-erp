@@ -177,6 +177,42 @@ CREATE TABLE IF NOT EXISTS platform_skus (
     UNIQUE(platform, variation_id)
 );
 
+-- Product conversion formulas (สูตรแปลงสินค้า)
+CREATE TABLE IF NOT EXISTS conversion_formulas (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    name              TEXT    NOT NULL,
+    output_product_id INTEGER NOT NULL REFERENCES products(id),
+    output_qty        INTEGER NOT NULL DEFAULT 1,
+    note              TEXT,
+    is_active         INTEGER NOT NULL DEFAULT 1,
+    created_at        TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS conversion_formula_inputs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    formula_id  INTEGER NOT NULL REFERENCES conversion_formulas(id) ON DELETE CASCADE,
+    product_id  INTEGER NOT NULL REFERENCES products(id),
+    quantity    INTEGER NOT NULL
+);
+
+-- Customer master (imported from BSN customer info CSV)
+CREATE TABLE IF NOT EXISTS customers (
+    code          TEXT    PRIMARY KEY,
+    name          TEXT    NOT NULL,
+    salesperson   TEXT,
+    zone          TEXT,
+    customer_type TEXT,
+    address       TEXT,
+    phone         TEXT,
+    tax_id        TEXT,
+    credit_days   INTEGER NOT NULL DEFAULT 0,
+    contact       TEXT,
+    lat           REAL,
+    lng           REAL,
+    geocoded_at   TEXT,
+    imported_at   TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
 CREATE TRIGGER IF NOT EXISTS update_product_timestamp
     AFTER UPDATE ON products
     BEGIN
@@ -230,6 +266,46 @@ def init_db():
         """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_st_doc_base ON sales_transactions(doc_base)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_pi_iv_no ON paid_invoices(iv_no)")
+    # Migration: create conversion tables if missing
+    existing_tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if 'conversion_formulas' not in existing_tables:
+        conn.executescript("""
+            CREATE TABLE conversion_formulas (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                name              TEXT    NOT NULL,
+                output_product_id INTEGER NOT NULL REFERENCES products(id),
+                output_qty        INTEGER NOT NULL DEFAULT 1,
+                note              TEXT,
+                is_active         INTEGER NOT NULL DEFAULT 1,
+                created_at        TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+            );
+            CREATE TABLE conversion_formula_inputs (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                formula_id  INTEGER NOT NULL REFERENCES conversion_formulas(id) ON DELETE CASCADE,
+                product_id  INTEGER NOT NULL REFERENCES products(id),
+                quantity    INTEGER NOT NULL
+            );
+        """)
+    # Migration: create customers table if missing
+    if 'customers' not in existing_tables:
+        conn.executescript("""
+            CREATE TABLE customers (
+                code          TEXT    PRIMARY KEY,
+                name          TEXT    NOT NULL,
+                salesperson   TEXT,
+                zone          TEXT,
+                customer_type TEXT,
+                address       TEXT,
+                phone         TEXT,
+                tax_id        TEXT,
+                credit_days   INTEGER NOT NULL DEFAULT 0,
+                contact       TEXT,
+                lat           REAL,
+                lng           REAL,
+                geocoded_at   TEXT,
+                imported_at   TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+            );
+        """)
     # Migration: create default admin user if users table is empty
     if not conn.execute("SELECT 1 FROM users LIMIT 1").fetchone():
         import config as _cfg
