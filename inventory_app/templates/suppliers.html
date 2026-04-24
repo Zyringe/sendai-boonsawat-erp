@@ -1,0 +1,100 @@
+{% extends 'base.html' %}
+{% block title %}Supplier – ERP{% endblock %}
+{% block page_title %}รายชื่อ Supplier{% endblock %}
+
+{% block content %}
+
+{# ── Filter bar ───────────────────────────────────────────────────────────── #}
+<div class="card mb-4">
+  <div class="card-body py-2">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-md-4">
+        <label class="form-label small mb-1">ค้นหาชื่อ / รหัส Supplier</label>
+        <input type="search" name="q" value="{{ search }}"
+               class="form-control form-control-sm" placeholder="พิมพ์ชื่อหรือรหัส…">
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-primary btn-sm">ค้นหา</button>
+        {% if search %}
+        <a href="{{ url_for('supplier_list') }}" class="btn btn-sm btn-outline-secondary ms-1">ล้าง</a>
+        {% endif %}
+      </div>
+      <div class="col-auto ms-auto align-self-center">
+        <span class="text-subtle small">ทั้งหมด {{ total }} ราย</span>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── Supplier table ───────────────────────────────────────────────────────── #}
+<div class="card">
+  <div class="table-responsive">
+    <table class="table mb-0 table-hover">
+      <thead>
+        <tr>
+          <th>ชื่อ Supplier</th>
+          <th>รหัส</th>
+          <th class="text-center">เอกสาร</th>
+          <th class="text-end">ยอดรวม (฿)</th>
+          <th class="text-center">ซื้อล่าสุด</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in suppliers %}
+        <tr style="cursor:pointer"
+            onclick="window.location='{{ url_for('supplier_summary', supplier_name=s.supplier) }}'">
+          <td class="fw-500">{{ s.supplier }}</td>
+          <td><span class="badge badge-gray font-mono">{{ s.supplier_code or '—' }}</span></td>
+          <td class="text-center text-subtle small">{{ s.doc_count }}</td>
+          <td class="text-end fw-600 font-mono text-accent">
+            {{ '{:,.0f}'.format(s.total_net) }}
+          </td>
+          <td class="text-center font-mono small text-subtle">{{ s.last_date or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-subtle py-4">ไม่พบ Supplier ที่ตรงกับการค้นหา</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# Pagination #}
+  {% if pages > 1 %}
+  {% set p_start = [2, page-1]|max %}
+  {% set p_end   = [pages-1, page+1]|min %}
+  <div class="card-footer d-flex justify-content-between align-items-center">
+    <span class="text-subtle small">หน้า {{ page }} / {{ pages }}</span>
+    <nav>
+      <ul class="pagination pagination-sm mb-0">
+        <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('supplier_list', q=search, page=page-1) }}">‹</a>
+        </li>
+        <li class="page-item {% if page == 1 %}active{% endif %}">
+          <a class="page-link" href="{{ url_for('supplier_list', q=search, page=1) }}">1</a>
+        </li>
+        {% if p_start > 2 %}
+        <li class="page-item disabled"><span class="page-link">…</span></li>
+        {% endif %}
+        {% for p in range(p_start, p_end+1) %}
+        <li class="page-item {% if p == page %}active{% endif %}">
+          <a class="page-link" href="{{ url_for('supplier_list', q=search, page=p) }}">{{ p }}</a>
+        </li>
+        {% endfor %}
+        {% if p_end < pages-1 %}
+        <li class="page-item disabled"><span class="page-link">…</span></li>
+        {% endif %}
+        {% if pages > 1 %}
+        <li class="page-item {% if page == pages %}active{% endif %}">
+          <a class="page-link" href="{{ url_for('supplier_list', q=search, page=pages) }}">{{ pages }}</a>
+        </li>
+        {% endif %}
+        <li class="page-item {% if page >= pages %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('supplier_list', q=search, page=page+1) }}">›</a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

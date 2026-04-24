@@ -66,6 +66,10 @@
        class="sidebar-link {% if request.endpoint in ['customer_list','customer_summary'] %}active{% endif %}">
       <i class="bi bi-people"></i> ลูกค้า
     </a>
+    <a href="{{ url_for('supplier_list') }}"
+       class="sidebar-link {% if request.endpoint in ['supplier_list','supplier_summary'] %}active{% endif %}">
+      <i class="bi bi-truck"></i> Supplier
+    </a>
     <a href="{{ url_for('customer_map') }}"
        class="sidebar-link {% if request.endpoint == 'customer_map' %}active{% endif %}">
       <i class="bi bi-geo-alt"></i> แผนที่ลูกค้า
@@ -169,6 +173,19 @@
       {% endif %}
     </div>
   </header>
+
+  <!-- Simulation banner -->
+  {% if simulating_as %}
+  <div style="background:#f59e0b;color:#1c1917;padding:.5rem 1.5rem;display:flex;align-items:center;gap:1rem;font-size:.875rem;font-weight:600">
+    <i class="bi bi-person-badge-fill"></i>
+    โหมดจำลอง: กำลังดูในฐานะ <span style="text-transform:uppercase;margin:0 .25rem">{{ simulating_as }}</span>
+    <form method="post" action="{{ url_for('admin_exit_simulate') }}" class="ms-auto mb-0">
+      <button type="submit" class="btn btn-sm" style="background:#1c1917;color:#fef3c7;border:none;font-size:.8rem">
+        <i class="bi bi-x-circle me-1"></i>ออกจากโหมดจำลอง
+      </button>
+    </form>
+  </div>
+  {% endif %}
 
   <!-- Flash messages -->
   <div class="px-4 pt-3">
