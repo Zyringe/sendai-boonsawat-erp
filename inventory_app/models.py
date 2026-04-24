@@ -2407,10 +2407,11 @@ def recalculate_product_wacc(product_id, conn=None):
         conv_by_ref[row['reference_no']].append(row['unit_cost'])
     conv_cursor = defaultdict(int)
 
-    # All transactions in chronological order
+    # All transactions: INs before OUTs on same day (standard WACC convention)
     txns = conn.execute(
         "SELECT txn_type, quantity_change, reference_no, note, created_at"
-        " FROM transactions WHERE product_id=? ORDER BY created_at, id",
+        " FROM transactions WHERE product_id=?"
+        " ORDER BY created_at, CASE WHEN txn_type='IN' THEN 0 ELSE 1 END, id",
         (product_id,)
     ).fetchall()
 
