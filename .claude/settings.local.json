@@ -152,7 +152,10 @@
       "Bash(sqlite3 /Users/put/Documents/Sendai-Boonsawat/ERP/inventory_app/instance/inventory.db 'DELETE FROM product_cost_ledger WHERE product_id IN \\(14,16\\);')",
       "Bash(curl -s -b /tmp/erp9.txt \"http://localhost:5001/products/16/cost-history\")",
       "Bash(curl -s -b /tmp/erp9.txt \"http://localhost:5001/products/14/cost-history\")",
-      "Bash(curl -s \"https://api.github.com/repos/Zyringe/sendai-boonsawat-erp/pulls?head=Zyringe:fix/update-overall-code&state=all\")"
+      "Bash(curl -s \"https://api.github.com/repos/Zyringe/sendai-boonsawat-erp/pulls?head=Zyringe:fix/update-overall-code&state=all\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('html_url'\\) or d.get\\('message'\\) or d\\)\")",
+      "Bash(sqlite3 /Users/put/Documents/Sendai-Boonsawat/ERP/inventory_app/instance/inventory.db 'SELECT id FROM products WHERE product_name='\\\\''บานพับผีเสื้อ สแตนเลส 4 นิ้ว'\\\\'';')",
+      "Bash(sqlite3 /Users/put/Documents/Sendai-Boonsawat/ERP/inventory_app/instance/inventory.db 'SELECT id, product_name, unit_type, cost_price FROM products WHERE product_name LIKE '\\\\''บานพับผีเสื้อ สแตนเลส 4 นิ้ว'\\\\'';')"
     ]
   }
 }
