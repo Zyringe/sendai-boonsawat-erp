@@ -2427,6 +2427,17 @@ def recalculate_product_wacc(product_id, conn=None):
 
     conn.execute("DELETE FROM product_cost_ledger WHERE product_id=?", (product_id,))
 
+    # Pre-compute non-purchase INs on exactly INITIAL_DATE (stock imports with no note)
+    # so the INITIAL ledger entry can show the correct "ยอดยกมา" stock
+    initial_date_stock_imports = sum(
+        r['quantity_change'] for r in txns
+        if r['created_at'][:10] == _WACC_INITIAL_DATE
+        and r['txn_type'] == 'IN'
+        and (r['note'] or '') not in ('BSN ซื้อ',)
+        and not (r['note'] or '').startswith('ประวัติขาย')
+        and not (r['note'] or '').startswith('แปลง:')
+    )
+
     current_stock = 0.0
     current_wacc  = 0.0
     initial_done  = False
@@ -2447,12 +2458,14 @@ def recalculate_product_wacc(product_id, conn=None):
             initial_done = True
             if cost_price > 0:
                 current_wacc = cost_price
+                # Include same-day stock imports so the displayed stock reflects reality
+                display_stock = current_stock + initial_date_stock_imports
                 entries.append(dict(
                     event_type='INITIAL', event_date=_WACC_INITIAL_DATE,
-                    qty_change=current_stock, unit_cost=cost_price,
-                    stock_after=current_stock, wacc_after=cost_price,
+                    qty_change=display_stock, unit_cost=cost_price,
+                    stock_after=display_stock, wacc_after=cost_price,
                     reference_no=None,
-                    note=f'ยอดยกมา {current_stock:g} {unit_type} @ {cost_price:.2f} บาท/{unit_type}'
+                    note=f'ยอดยกมา {display_stock:g} {unit_type} @ {cost_price:.2f} บาท/{unit_type}'
                 ))
 
         # ── Purchase (BSN ซื้อ) ───────────────────────────────────────────────
