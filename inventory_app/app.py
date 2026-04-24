@@ -41,6 +41,7 @@ with app.app_context():
 _STAFF_POST_OK = frozenset([
     'login', 'logout',
     'import_weekly', 'mapping_save', 'unit_conversions_save', 'unit_conversions_edit',
+    'product_location_save',
 ])
 _MANAGER_POST_OK = _STAFF_POST_OK | frozenset([
     'import_payments', 'product_online_stock',
@@ -376,6 +377,16 @@ def product_edit(product_id):
     return render_template('products/form.html', product=product, action='edit', product_id=product_id, locations=locations)
 
 
+@app.route('/products/<int:product_id>/location', methods=['POST'])
+def product_location_save(product_id):
+    if not models.get_product(product_id):
+        abort(404)
+    locations = request.form.getlist('floor_no')
+    models.save_product_locations(product_id, locations)
+    flash('อัปเดตสถานที่เก็บสินค้าเรียบร้อย', 'success')
+    return redirect(url_for('product_detail', product_id=product_id))
+
+
 @app.route('/products/<int:product_id>/online-stock', methods=['POST'])
 def product_online_stock(product_id):
     platform = request.form.get('platform')
@@ -680,12 +691,14 @@ def import_weekly():
 
         stats = models.import_weekly(entries, file_type, f.filename)
 
-        flash(
-            f'นำเข้าสำเร็จ {stats["imported"]} รายการ  |  '
-            f'ข้ามซ้ำ {stats["skipped_dup"]} รายการ  |  '
-            f'สินค้าไม่มีในระบบ {stats["new_unmapped"]} รายการ',
-            'success' if stats['new_unmapped'] == 0 else 'warning'
-        )
+        parts = [f'นำเข้าสำเร็จ {stats["imported"]} รายการ']
+        if stats['overwritten']:
+            parts.append(f'อัพเดทข้อมูลเก่า {stats["overwritten"]} รายการ')
+        if stats['skipped_dup']:
+            parts.append(f'ข้าม {stats["skipped_dup"]} รายการ')
+        if stats['new_unmapped']:
+            parts.append(f'สินค้าไม่มีในระบบ {stats["new_unmapped"]} รายการ')
+        flash('  |  '.join(parts), 'success' if stats['new_unmapped'] == 0 else 'warning')
         if models.get_pending_unit_conversions():
             return redirect(url_for('unit_conversions'))
         if stats['new_unmapped'] > 0:
