@@ -40,7 +40,7 @@ with app.app_context():
 # POST whitelist by role
 _STAFF_POST_OK = frozenset([
     'login', 'logout',
-    'import_weekly', 'mapping_save', 'unit_conversions_save',
+    'import_weekly', 'mapping_save', 'unit_conversions_save', 'unit_conversions_edit',
 ])
 _MANAGER_POST_OK = _STAFF_POST_OK | frozenset([
     'import_payments', 'product_online_stock',
