@@ -44,6 +44,7 @@ _STAFF_POST_OK = frozenset([
 ])
 _MANAGER_POST_OK = _STAFF_POST_OK | frozenset([
     'import_payments', 'product_online_stock',
+    'conversion_run', 'conversion_new', 'conversion_edit',
 ])
 # admin can POST anything
 
@@ -1212,6 +1213,246 @@ def ecommerce_sku_edit(sku_id):
                             page=request.form.get('page', 1),
                             q=request.form.get('q', '')))
 
+
+
+# ── Product Conversions (สูตรแปลงสินค้า) ─────────────────────────────────────
+
+@app.route('/conversions')
+def conversion_list():
+    formulas = models.get_conversion_formulas()
+    return render_template('conversions/list.html', formulas=formulas)
+
+
+def _get_active_products():
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, sku, product_name, unit_type FROM products WHERE is_active=1 ORDER BY product_name"
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+@app.route('/conversions/new', methods=['GET', 'POST'])
+def conversion_new():
+    if session.get('role') not in ('admin', 'manager'):
+        abort(403)
+    products = _get_active_products()
+    if request.method == 'POST':
+        name              = request.form.get('name', '').strip()
+        output_product_id = request.form.get('output_product_id', '').strip()
+        output_qty        = request.form.get('output_qty', '1').strip()
+        note              = request.form.get('note', '').strip()
+        input_pids        = request.form.getlist('input_product_id[]')
+        input_qtys        = request.form.getlist('input_quantity[]')
+
+        inputs = [{'product_id': int(p), 'quantity': int(q)}
+                  for p, q in zip(input_pids, input_qtys) if p and q]
+        if not name or not output_product_id or not inputs:
+            flash('กรุณากรอกชื่อสูตร สินค้าที่ได้ และวัตถุดิบอย่างน้อย 1 รายการ', 'danger')
+            return render_template('conversions/form.html', products=products, formula=None, inputs=[])
+
+        models.create_conversion_formula(
+            name, int(output_product_id), int(output_qty), inputs, note
+        )
+        flash(f'สร้างสูตร "{name}" สำเร็จ', 'success')
+        return redirect(url_for('conversion_list'))
+
+    return render_template('conversions/form.html', products=products, formula=None, inputs=[])
+
+
+@app.route('/conversions/<int:formula_id>/edit', methods=['GET', 'POST'])
+def conversion_edit(formula_id):
+    if session.get('role') not in ('admin', 'manager'):
+        abort(403)
+    formula, inputs = models.get_conversion_formula(formula_id)
+    if not formula:
+        abort(404)
+    products = _get_active_products()
+    if request.method == 'POST':
+        name              = request.form.get('name', '').strip()
+        output_product_id = request.form.get('output_product_id', '').strip()
+        output_qty        = request.form.get('output_qty', '1').strip()
+        note              = request.form.get('note', '').strip()
+        input_pids        = request.form.getlist('input_product_id[]')
+        input_qtys        = request.form.getlist('input_quantity[]')
+
+        new_inputs = [{'product_id': int(p), 'quantity': int(q)}
+                      for p, q in zip(input_pids, input_qtys) if p and q]
+        if not name or not output_product_id or not new_inputs:
+            flash('กรุณากรอกข้อมูลให้ครบ', 'danger')
+            return render_template('conversions/form.html', products=products, formula=formula, inputs=inputs)
+
+        models.update_conversion_formula(
+            formula_id, name, int(output_product_id), int(output_qty), new_inputs, note
+        )
+        flash(f'อัปเดตสูตร "{name}" สำเร็จ', 'success')
+        return redirect(url_for('conversion_list'))
+
+    return render_template('conversions/form.html', products=products, formula=formula, inputs=inputs)
+
+
+@app.route('/conversions/<int:formula_id>/run', methods=['GET', 'POST'])
+def conversion_run(formula_id):
+    formula, inputs = models.get_conversion_formula(formula_id)
+    if not formula or not formula['is_active']:
+        abort(404)
+    if request.method == 'POST':
+        if session.get('role') not in ('admin', 'manager'):
+            flash('ต้องใช้บัญชี Admin หรือ Manager เท่านั้น', 'danger')
+            return redirect(url_for('conversion_list'))
+        try:
+            multiplier   = max(1, int(request.form.get('multiplier', 1)))
+        except (ValueError, TypeError):
+            multiplier   = 1
+        reference_no = request.form.get('reference_no', '').strip()
+        extra_note   = request.form.get('note', '').strip()
+
+        success, message, _ = models.run_conversion(formula_id, multiplier, reference_no, extra_note)
+        flash(message, 'success' if success else 'danger')
+        if success:
+            return redirect(url_for('conversion_list'))
+
+    return render_template('conversions/run.html', formula=formula, inputs=inputs)
+
+
+@app.route('/conversions/<int:formula_id>/deactivate', methods=['POST'])
+def conversion_deactivate(formula_id):
+    if session.get('role') != 'admin':
+        abort(403)
+    conn = get_connection()
+    conn.execute("UPDATE conversion_formulas SET is_active=0 WHERE id=?", (formula_id,))
+    conn.commit()
+    conn.close()
+    flash('ปิดใช้งานสูตรแล้ว', 'success')
+    return redirect(url_for('conversion_list'))
+
+
+# ── Customer Map ──────────────────────────────────────────────────────────────
+
+def _parse_bsn_customers():
+    import re
+    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            '..', 'data', 'source', 'bsn_customer_info.csv')
+    with open(csv_path, encoding='cp874', errors='replace') as f:
+        content = f.read()
+    lines = [l.strip('"').replace('\xa0', ' ') for l in content.split('\n')]
+
+    customers = []
+    current_type = ''
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        type_match = re.match(r'\s+ประเภท\s*:\s*(.+)', line)
+        if type_match:
+            current_type = type_match.group(1).strip()
+            i += 1; continue
+
+        cust_match = re.match(r'  (\d{2}[ก-ฮA-Za-z]\d{2,3})\s+(.+?)\s{3,}(\S+)\s+(\S+)\s+\d+', line)
+        if cust_match:
+            code = cust_match.group(1)
+            name = cust_match.group(2).strip()
+            salesperson = cust_match.group(3)
+            zone = cust_match.group(4)
+            customer = {
+                'code': code, 'name': name, 'salesperson': salesperson,
+                'zone': zone, 'customer_type': current_type,
+                'address': '', 'phone': '', 'tax_id': '',
+                'credit_days': 0, 'contact': '',
+            }
+            addr_parts = []
+            j = i + 1
+            while j < len(lines) and j < i + 10:
+                nl = lines[j]
+                if re.match(r'  \d{2}[ก-ฮA-Za-z]\d{2,3}\s', nl): break
+                if re.match(r'\(BSN\)', nl.strip()): j += 5; break
+                am = re.match(r'\s+ที่อยู่\s*:\s*(.*?)\s+ผู้ติดต่อ\s*:\s*(.*)', nl)
+                if am:
+                    a = am.group(1).strip()
+                    if a: addr_parts.append(a)
+                    customer['contact'] = am.group(2).strip()
+                elif re.match(r'\s{17,}[^\s]', nl):
+                    a = re.sub(r'\s+เลขที่.*', '', re.sub(r'\s+เครดิต.*', '', nl)).strip()
+                    if a and not a.startswith('(BSN)'): addr_parts.append(a)
+                cm = re.search(r'เครดิต\s*:\s*(\d+)', nl)
+                if cm: customer['credit_days'] = int(cm.group(1))
+                pm = re.match(r'\s+โทร\.\s*:\s*(.*?)\s+เงื่อนไข', nl)
+                if pm: customer['phone'] = pm.group(1).strip()
+                tm = re.match(r'\s+Tax ID\s*:\s*(\d+)', nl)
+                if tm: customer['tax_id'] = tm.group(1)
+                j += 1
+            customer['address'] = ' '.join(addr_parts)
+            customers.append(customer)
+            i = j; continue
+        i += 1
+    return customers
+
+
+@app.route('/customers/map')
+def customer_map():
+    zone   = request.args.get('zone', '').strip()
+    ctype  = request.args.get('type', '').strip()
+    total, geocoded = models.get_geocode_progress()
+    zones  = models.get_customer_zones()
+    ctypes = models.get_customer_types()
+    customers_json = models.get_customers_for_map(
+        zone=zone or None, customer_type=ctype or None
+    )
+    return render_template('customer_map.html',
+                           customers_json=customers_json,
+                           zones=zones, ctypes=ctypes,
+                           sel_zone=zone, sel_type=ctype,
+                           total=total, geocoded=geocoded)
+
+
+@app.route('/customers/import-bsn', methods=['POST'])
+def customer_import_bsn():
+    if session.get('role') != 'admin':
+        abort(403)
+    customers = _parse_bsn_customers()
+    inserted, updated = models.import_customers_from_bsn(customers)
+    flash(f'นำเข้าสำเร็จ: เพิ่มใหม่ {inserted} รายการ, อัปเดต {updated} รายการ', 'success')
+    return redirect(url_for('customer_map'))
+
+
+@app.route('/customers/geocode/<code>', methods=['POST'])
+def customer_geocode(code):
+    import urllib.request, urllib.parse, json as _json
+    conn = get_connection()
+    row = conn.execute("SELECT address, name FROM customers WHERE code=?", (code,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'not found'}), 404
+    address = row['address'] or row['name']
+    query = urllib.parse.urlencode({'q': address + ' ประเทศไทย', 'format': 'json',
+                                    'limit': 1, 'accept-language': 'th'})
+    url = f'https://nominatim.openstreetmap.org/search?{query}'
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'SendaiBoonswat-ERP/1.0'})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = _json.loads(resp.read())
+        if data:
+            lat, lng = float(data[0]['lat']), float(data[0]['lon'])
+            models.save_customer_geocode(code, lat, lng)
+            return jsonify({'ok': True, 'lat': lat, 'lng': lng, 'display': data[0].get('display_name','')})
+        return jsonify({'ok': False, 'reason': 'no result'})
+    except Exception as e:
+        return jsonify({'ok': False, 'reason': str(e)}), 500
+
+
+@app.route('/api/customers/geojson')
+def customer_geojson():
+    zone  = request.args.get('zone') or None
+    ctype = request.args.get('type') or None
+    rows  = models.get_customers_for_map(zone=zone, customer_type=ctype, geocoded_only=True)
+    features = []
+    for r in rows:
+        features.append({
+            'type': 'Feature',
+            'geometry': {'type': 'Point', 'coordinates': [r['lng'], r['lat']]},
+            'properties': {k: r[k] for k in ('code','name','zone','customer_type',
+                                              'address','phone','salesperson','credit_days')}
+        })
+    return jsonify({'type': 'FeatureCollection', 'features': features})
 
 
 if __name__ == '__main__':

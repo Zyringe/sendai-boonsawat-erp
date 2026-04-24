@@ -1960,3 +1960,228 @@ def _clean_for_match(text):
     text = _re_mod.sub(r'[()（）【】\[\]\'""]', ' ', text)
     text = _re_mod.sub(r'\s+', ' ', text).strip()
     return text
+
+
+# ── Product Conversion Formulas (สูตรแปลงสินค้า) ────────────────────────────
+
+def get_conversion_formulas():
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT cf.id, cf.name, cf.output_product_id, cf.output_qty,
+               cf.note, cf.is_active, cf.created_at,
+               p.product_name AS output_product_name,
+               p.unit_type    AS output_unit_type,
+               COUNT(cfi.id)  AS input_count
+          FROM conversion_formulas cf
+          JOIN products p ON p.id = cf.output_product_id
+          LEFT JOIN conversion_formula_inputs cfi ON cfi.formula_id = cf.id
+         GROUP BY cf.id
+         ORDER BY cf.is_active DESC, cf.name
+    """).fetchall()
+    conn.close()
+    return rows
+
+
+def get_conversion_formula(formula_id):
+    conn = get_connection()
+    formula = conn.execute("""
+        SELECT cf.*, p.product_name AS output_product_name,
+               p.unit_type AS output_unit_type,
+               COALESCE(sl.quantity, 0) AS output_stock
+          FROM conversion_formulas cf
+          JOIN products p ON p.id = cf.output_product_id
+          LEFT JOIN stock_levels sl ON sl.product_id = cf.output_product_id
+         WHERE cf.id = ?
+    """, (formula_id,)).fetchone()
+    if not formula:
+        conn.close()
+        return None, []
+    inputs = conn.execute("""
+        SELECT cfi.id, cfi.product_id, cfi.quantity,
+               p.product_name, p.unit_type,
+               COALESCE(sl.quantity, 0) AS current_stock
+          FROM conversion_formula_inputs cfi
+          JOIN products p ON p.id = cfi.product_id
+          LEFT JOIN stock_levels sl ON sl.product_id = cfi.product_id
+         WHERE cfi.formula_id = ?
+         ORDER BY cfi.id
+    """, (formula_id,)).fetchall()
+    conn.close()
+    return formula, inputs
+
+
+def create_conversion_formula(name, output_product_id, output_qty, inputs, note=''):
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO conversion_formulas(name, output_product_id, output_qty, note) VALUES (?,?,?,?)",
+        (name, output_product_id, output_qty, note or None)
+    )
+    formula_id = cur.lastrowid
+    for inp in inputs:
+        conn.execute(
+            "INSERT INTO conversion_formula_inputs(formula_id, product_id, quantity) VALUES (?,?,?)",
+            (formula_id, inp['product_id'], inp['quantity'])
+        )
+    conn.commit()
+    conn.close()
+    return formula_id
+
+
+def update_conversion_formula(formula_id, name, output_product_id, output_qty, inputs, note=''):
+    conn = get_connection()
+    conn.execute(
+        "UPDATE conversion_formulas SET name=?, output_product_id=?, output_qty=?, note=? WHERE id=?",
+        (name, output_product_id, output_qty, note or None, formula_id)
+    )
+    conn.execute("DELETE FROM conversion_formula_inputs WHERE formula_id=?", (formula_id,))
+    for inp in inputs:
+        conn.execute(
+            "INSERT INTO conversion_formula_inputs(formula_id, product_id, quantity) VALUES (?,?,?)",
+            (formula_id, inp['product_id'], inp['quantity'])
+        )
+    conn.commit()
+    conn.close()
+
+
+def run_conversion(formula_id, multiplier, reference_no='', extra_note=''):
+    conn = get_connection()
+    formula = conn.execute("""
+        SELECT cf.*, p.product_name AS output_product_name
+          FROM conversion_formulas cf
+          JOIN products p ON p.id = cf.output_product_id
+         WHERE cf.id = ?
+    """, (formula_id,)).fetchone()
+    if not formula:
+        conn.close()
+        return False, 'ไม่พบสูตรการแปลง', {}
+
+    inputs = conn.execute("""
+        SELECT cfi.*, p.product_name, p.unit_type,
+               COALESCE(sl.quantity, 0) AS current_stock
+          FROM conversion_formula_inputs cfi
+          JOIN products p ON p.id = cfi.product_id
+          LEFT JOIN stock_levels sl ON sl.product_id = cfi.product_id
+         WHERE cfi.formula_id = ?
+    """, (formula_id,)).fetchall()
+
+    shortage = []
+    for inp in inputs:
+        needed = inp['quantity'] * multiplier
+        if inp['current_stock'] < needed:
+            shortage.append(
+                f'{inp["product_name"]}: ต้องการ {needed:,} แต่มีแค่ {inp["current_stock"]:,} {inp["unit_type"]}'
+            )
+    if shortage:
+        conn.close()
+        return False, 'สต็อกไม่พอ: ' + ' | '.join(shortage), {}
+
+    note_text = f'แปลง: {formula["name"]}'
+    if extra_note:
+        note_text += f' | {extra_note}'
+
+    for inp in inputs:
+        needed = inp['quantity'] * multiplier
+        conn.execute(
+            "INSERT INTO transactions(product_id, txn_type, quantity_change, unit_mode, reference_no, note)"
+            " VALUES (?,?,?,?,?,?)",
+            (inp['product_id'], 'OUT', -needed, 'unit', reference_no or None, note_text)
+        )
+
+    output_qty = formula['output_qty'] * multiplier
+    conn.execute(
+        "INSERT INTO transactions(product_id, txn_type, quantity_change, unit_mode, reference_no, note)"
+        " VALUES (?,?,?,?,?,?)",
+        (formula['output_product_id'], 'IN', output_qty, 'unit', reference_no or None, note_text)
+    )
+
+    conn.commit()
+    conn.close()
+    return True, f'แปลงสำเร็จ: ได้ {output_qty:,} {formula["output_product_name"]}', {
+        'output_qty': output_qty,
+        'output_name': formula['output_product_name'],
+    }
+
+
+# ── Customer Master (BSN import) ───────────────────────────────────────────────
+
+def import_customers_from_bsn(customers):
+    conn = get_connection()
+    inserted = updated = 0
+    for c in customers:
+        existing = conn.execute("SELECT code FROM customers WHERE code=?", (c['code'],)).fetchone()
+        if existing:
+            conn.execute("""
+                UPDATE customers SET name=?, salesperson=?, zone=?, customer_type=?,
+                    address=?, phone=?, tax_id=?, credit_days=?, contact=?,
+                    imported_at=datetime('now','localtime')
+                WHERE code=?
+            """, (c['name'], c['salesperson'], c['zone'], c['customer_type'],
+                  c['address'], c['phone'], c['tax_id'], c['credit_days'],
+                  c['contact'], c['code']))
+            updated += 1
+        else:
+            conn.execute("""
+                INSERT INTO customers(code, name, salesperson, zone, customer_type,
+                    address, phone, tax_id, credit_days, contact)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+            """, (c['code'], c['name'], c['salesperson'], c['zone'], c['customer_type'],
+                  c['address'], c['phone'], c['tax_id'], c['credit_days'], c['contact']))
+            inserted += 1
+    conn.commit()
+    conn.close()
+    return inserted, updated
+
+
+def get_customers_for_map(zone=None, customer_type=None, geocoded_only=False):
+    conn = get_connection()
+    conds = ['1=1']
+    params = []
+    if zone:
+        conds.append('zone=?'); params.append(zone)
+    if customer_type:
+        conds.append('customer_type=?'); params.append(customer_type)
+    if geocoded_only:
+        conds.append('lat IS NOT NULL')
+    where = ' AND '.join(conds)
+    rows = conn.execute(
+        f"SELECT * FROM customers WHERE {where} ORDER BY zone, code",
+        params
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def save_customer_geocode(code, lat, lng):
+    conn = get_connection()
+    conn.execute(
+        "UPDATE customers SET lat=?, lng=?, geocoded_at=datetime('now','localtime') WHERE code=?",
+        (lat, lng, code)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_customer_zones():
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT DISTINCT zone FROM customers WHERE zone IS NOT NULL ORDER BY zone"
+    ).fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+
+def get_customer_types():
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT DISTINCT customer_type FROM customers WHERE customer_type IS NOT NULL ORDER BY customer_type"
+    ).fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+
+def get_geocode_progress():
+    conn = get_connection()
+    total = conn.execute("SELECT COUNT(*) FROM customers").fetchone()[0]
+    geocoded = conn.execute("SELECT COUNT(*) FROM customers WHERE lat IS NOT NULL").fetchone()[0]
+    conn.close()
+    return total, geocoded

@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+{% block title %}สูตรแปลงสินค้า – ERP{% endblock %}
+{% block page_title %}สูตรแปลงสินค้า{% endblock %}
+
+{% block topbar_actions %}
+{% if is_manager %}
+<a href="{{ url_for('conversion_new') }}" class="btn btn-primary btn-sm">
+  <i class="bi bi-plus-lg me-1"></i>สูตรใหม่
+</a>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if not formulas %}
+<div class="text-center py-5 text-subtle">
+  <i class="bi bi-scissors" style="font-size:2.5rem;opacity:.3"></i>
+  <div class="mt-2">ยังไม่มีสูตรแปลงสินค้า</div>
+  {% if is_manager %}
+  <a href="{{ url_for('conversion_new') }}" class="btn btn-primary btn-sm mt-3">
+    <i class="bi bi-plus-lg me-1"></i>สร้างสูตรแรก
+  </a>
+  {% endif %}
+</div>
+{% else %}
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>ชื่อสูตร</th>
+          <th>วัตถุดิบ (inputs)</th>
+          <th class="text-end">ผลลัพธ์ที่ได้</th>
+          <th class="text-center">สถานะ</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in formulas %}
+        <tr{% if not f.is_active %} class="text-muted"{% endif %}>
+          <td class="fw-500">
+            {{ f.name }}
+            {% if f.note %}<div class="text-subtle small">{{ f.note }}</div>{% endif %}
+          </td>
+          <td class="text-subtle small">{{ f.input_count }} รายการ</td>
+          <td class="text-end">
+            <span class="fw-500">{{ f.output_qty | fmt_qty }}</span>
+            <span class="text-subtle small ms-1">{{ f.output_unit_type }} {{ f.output_product_name }}</span>
+          </td>
+          <td class="text-center">
+            {% if f.is_active %}
+            <span class="badge bg-success">ใช้งาน</span>
+            {% else %}
+            <span class="badge bg-secondary">ปิด</span>
+            {% endif %}
+          </td>
+          <td class="text-end" style="white-space:nowrap">
+            {% if f.is_active %}
+            <a href="{{ url_for('conversion_run', formula_id=f.id) }}"
+               class="btn btn-sm btn-success" title="แปลงสินค้า">
+              <i class="bi bi-play-fill me-1"></i>แปลง
+            </a>
+            {% endif %}
+            {% if is_manager %}
+            <a href="{{ url_for('conversion_edit', formula_id=f.id) }}"
+               class="btn btn-sm btn-outline-secondary" title="แก้ไขสูตร">
+              <i class="bi bi-pencil"></i>
+            </a>
+            {% endif %}
+            {% if is_admin and f.is_active %}
+            <form method="post" action="{{ url_for('conversion_deactivate', formula_id=f.id) }}"
+                  class="d-inline"
+                  onsubmit="return confirm('ปิดใช้งานสูตร "{{ f.name }}"?')">
+              <button type="submit" class="btn btn-sm btn-outline-danger" title="ปิดใช้งาน">
+                <i class="bi bi-x-circle"></i>
+              </button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
