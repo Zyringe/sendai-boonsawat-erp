@@ -2407,6 +2407,16 @@ def recalculate_product_wacc(product_id, conn=None):
         conv_by_ref[row['reference_no']].append(row['unit_cost'])
     conv_cursor = defaultdict(int)
 
+    # Build set of reference_nos that have ประวัติขาย INs (explicitly "ไม่นับสต็อค")
+    # Both the ประวัติขาย IN and its paired BSN ขาย OUT are skipped in WACC calculation
+    prathai_refs = {
+        r[0] for r in conn.execute(
+            "SELECT DISTINCT reference_no FROM transactions"
+            " WHERE product_id=? AND note LIKE 'ประวัติขาย%' AND reference_no IS NOT NULL",
+            (product_id,)
+        ).fetchall()
+    }
+
     # All transactions: INs before OUTs on same day (standard WACC convention)
     txns = conn.execute(
         "SELECT txn_type, quantity_change, reference_no, note, created_at"
@@ -2428,10 +2438,14 @@ def recalculate_product_wacc(product_id, conn=None):
         ref       = txn['reference_no'] or ''
         note      = txn['note'] or ''
 
+        # Skip ประวัติขาย pairs entirely — both the compensating IN and the paired OUT
+        if note.startswith('ประวัติขาย') or (txn['txn_type'] == 'OUT' and ref in prathai_refs):
+            continue
+
         # ── Trigger initial WACC at INITIAL_DATE ──────────────────────────────
         if not initial_done and date_str >= _WACC_INITIAL_DATE:
             initial_done = True
-            if cost_price > 0 and current_stock > 0:
+            if cost_price > 0:
                 current_wacc = cost_price
                 entries.append(dict(
                     event_type='INITIAL', event_date=_WACC_INITIAL_DATE,
@@ -2495,8 +2509,15 @@ def recalculate_product_wacc(product_id, conn=None):
         current_stock += qty
 
     # ── Handle products that never reached INITIAL_DATE ──────────────────────
-    if not initial_done and cost_price > 0 and current_stock > 0:
+    if not initial_done and cost_price > 0:
         current_wacc = cost_price
+        entries.append(dict(
+            event_type='INITIAL', event_date=_WACC_INITIAL_DATE,
+            qty_change=current_stock, unit_cost=cost_price,
+            stock_after=current_stock, wacc_after=cost_price,
+            reference_no=None,
+            note=f'ยอดยกมา {current_stock:g} {unit_type} @ {cost_price:.2f} บาท/{unit_type}'
+        ))
 
     for e in entries:
         conn.execute(
