@@ -306,6 +306,37 @@ def init_db():
                 imported_at   TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
             );
         """)
+    # Migration: create product_cost_ledger and conversion_cost_log if missing
+    if 'product_cost_ledger' not in existing_tables:
+        conn.executescript("""
+            CREATE TABLE product_cost_ledger (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id   INTEGER NOT NULL REFERENCES products(id),
+                event_type   TEXT    NOT NULL,
+                event_date   TEXT    NOT NULL,
+                qty_change   REAL    NOT NULL,
+                unit_cost    REAL    NOT NULL,
+                stock_after  REAL    NOT NULL,
+                wacc_after   REAL    NOT NULL,
+                reference_no TEXT,
+                note         TEXT,
+                created_at   TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+            );
+            CREATE INDEX idx_pcl_product ON product_cost_ledger(product_id, event_date, id);
+        """)
+    if 'conversion_cost_log' not in existing_tables:
+        conn.executescript("""
+            CREATE TABLE conversion_cost_log (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                output_product_id INTEGER NOT NULL REFERENCES products(id),
+                reference_no      TEXT,
+                event_date        TEXT    NOT NULL,
+                output_qty        REAL    NOT NULL,
+                total_input_cost  REAL    NOT NULL,
+                unit_cost         REAL    NOT NULL,
+                created_at        TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+            );
+        """)
     # Migration: create default admin user if users table is empty
     if not conn.execute("SELECT 1 FROM users LIMIT 1").fetchone():
         import config as _cfg

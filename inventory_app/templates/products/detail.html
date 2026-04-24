@@ -129,7 +129,17 @@
             <tr><td class="text-subtle">ขายยาก</td>
                 <td>{% if product.hard_to_sell %}<span class="badge badge-warning">ใช่</span>{% else %}–{% endif %}</td></tr>
             {% if is_manager %}
-            <tr><td class="text-subtle">ต้นทุน</td><td class="fw-500">฿{{ product.cost_price | fmt_price }}</td></tr>
+            <tr>
+              <td class="text-subtle">ต้นทุน (WACC)</td>
+              <td class="fw-500">
+                <span id="wacc-display" class="wacc-clickable" style="cursor:pointer"
+                      data-product-id="{{ product.id }}"
+                      title="คลิกเพื่อดูประวัติต้นทุน">
+                  <span class="wacc-value">…</span>
+                  <i class="bi bi-clock-history ms-1 text-muted" style="font-size:11px"></i>
+                </span>
+              </td>
+            </tr>
             {% endif %}
             <tr>
               <td class="text-subtle">ราคาขายปกติ</td>
@@ -175,6 +185,13 @@
                 {% else %}
                   <span class="text-subtle">–</span>
                 {% endif %}
+                {% if current_role in ('admin', 'manager', 'staff') %}
+                <button type="button" class="btn btn-sm btn-link p-0 ms-1 text-muted"
+                        data-bs-toggle="modal" data-bs-target="#locationModal"
+                        title="แก้ไขสถานที่เก็บ">
+                  <i class="bi bi-pencil-square" style="font-size:13px"></i>
+                </button>
+                {% endif %}
               </td>
             </tr>
           </tbody>
@@ -182,31 +199,88 @@
       </div>
 
       {% if current_role in ('admin', 'manager', 'staff') %}
-      <div class="card-body border-top pt-3 pb-3">
-        <div class="small fw-600 mb-2 text-subtle">
-          <i class="bi bi-geo-alt me-1"></i>แก้ไขสถานที่เก็บ
-        </div>
-        <form method="post" action="{{ url_for('product_location_save', product_id=product.id) }}" id="locationForm">
-          <div id="locationFields">
-            {% for loc in locations %}
-            <div class="d-flex gap-1 mb-1 location-row">
-              <input type="text" name="floor_no" value="{{ loc }}"
-                     class="form-control form-control-sm font-mono"
-                     placeholder="เช่น A1, B2">
-              <button type="button" class="btn btn-sm btn-outline-danger px-2" onclick="this.closest('.location-row').remove()">
-                <i class="bi bi-x"></i>
-              </button>
+      <div class="modal fade" id="locationModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+          <div class="modal-content">
+            <div class="modal-header py-2 px-3">
+              <h6 class="modal-title mb-0"><i class="bi bi-geo-alt me-1"></i>สถานที่เก็บ</h6>
+              <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
             </div>
-            {% endfor %}
+            <form method="post" action="{{ url_for('product_location_save', product_id=product.id) }}" id="locationForm">
+              <div class="modal-body py-2 px-3">
+                <div id="locationFields">
+                  {% for loc in locations %}
+                  <div class="d-flex gap-1 mb-1 location-row">
+                    <input type="text" name="floor_no" value="{{ loc }}"
+                           class="form-control form-control-sm font-mono"
+                           placeholder="เช่น A1, B2">
+                    <button type="button" class="btn btn-sm btn-outline-danger px-2" onclick="this.closest('.location-row').remove()">
+                      <i class="bi bi-x"></i>
+                    </button>
+                  </div>
+                  {% endfor %}
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-secondary w-100 mt-1" onclick="addLocation()">
+                  <i class="bi bi-plus me-1"></i>เพิ่มสถานที่
+                </button>
+              </div>
+              <div class="modal-footer py-2 px-3">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
+                <button type="submit" class="btn btn-sm btn-primary">บันทึก</button>
+              </div>
+            </form>
           </div>
-          <button type="button" class="btn btn-sm btn-outline-secondary w-100 mt-1 mb-2" onclick="addLocation()">
-            <i class="bi bi-plus me-1"></i>เพิ่มสถานที่
-          </button>
-          <button type="submit" class="btn btn-sm btn-primary w-100">บันทึก</button>
-        </form>
+        </div>
       </div>
       {% endif %}
     </div>
+
+    {% if is_manager %}
+    <!-- WACC History Modal -->
+    <div class="modal fade" id="waccModal" tabindex="-1">
+      <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+          <div class="modal-header py-2 px-3">
+            <h6 class="modal-title mb-0">
+              <i class="bi bi-clock-history me-1"></i>ประวัติต้นทุน (WACC)
+              <span class="text-muted fw-normal ms-1 small" id="wacc-modal-name">{{ product.product_name }}</span>
+            </h6>
+            <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body p-0">
+            <div id="wacc-loading" class="text-center py-4 text-muted">
+              <div class="spinner-border spinner-border-sm me-2"></div>กำลังโหลด...
+            </div>
+            <div id="wacc-content" class="d-none">
+              <div class="px-3 pt-2 pb-1 d-flex align-items-center gap-3">
+                <span class="small text-muted">WACC ปัจจุบัน:</span>
+                <span class="fw-600 text-primary" id="wacc-current-val"></span>
+              </div>
+              <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0 small">
+                  <thead class="table-light">
+                    <tr>
+                      <th>วันที่</th>
+                      <th>ประเภท</th>
+                      <th class="text-end">จำนวน</th>
+                      <th class="text-end">ราคา/หน่วย</th>
+                      <th class="text-end">สต็อก</th>
+                      <th class="text-end">WACC ใหม่</th>
+                      <th>เอกสาร</th>
+                    </tr>
+                  </thead>
+                  <tbody id="wacc-tbody"></tbody>
+                </table>
+              </div>
+              <div id="wacc-empty" class="text-center py-3 text-muted small d-none">
+                ยังไม่มีข้อมูลต้นทุน
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
 
     {% if is_admin %}
     <form method="post" action="{{ url_for('product_deactivate', product_id=product.id) }}"
@@ -393,5 +467,99 @@ function addLocation() {
   document.getElementById('locationFields').appendChild(row);
   row.querySelector('input').focus();
 }
+
+document.getElementById('locationModal')?.addEventListener('shown.bs.modal', () => {
+  const first = document.querySelector('#locationFields input');
+  if (first) first.focus();
+});
+
+// WACC display & history modal
+(function () {
+  const waccDisplay = document.getElementById('wacc-display');
+  if (!waccDisplay) return;
+
+  const productId = waccDisplay.dataset.productId;
+  const waccValue = waccDisplay.querySelector('.wacc-value');
+  let historyCache = null;
+
+  const EVENT_LABELS = {
+    INITIAL: 'ยอดยกมา',
+    PURCHASE: 'ซื้อ',
+    CONVERSION_IN: 'แปลงสินค้า',
+  };
+
+  function thaiDate(iso) {
+    if (!iso) return '-';
+    const d = new Date(iso.replace(' ', 'T'));
+    if (isNaN(d)) return iso.slice(0, 10);
+    const y = d.getFullYear() + 543;
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${day}/${m}/${y}`;
+  }
+
+  function fmt(n) {
+    if (n == null) return '-';
+    return Number(n).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function renderHistory(data) {
+    const tbody = document.getElementById('wacc-tbody');
+    const currentEl = document.getElementById('wacc-current-val');
+    const emptyEl = document.getElementById('wacc-empty');
+    const loading = document.getElementById('wacc-loading');
+    const content = document.getElementById('wacc-content');
+
+    if (loading) loading.classList.add('d-none');
+    if (content) content.classList.remove('d-none');
+    currentEl.textContent = `฿${fmt(data.wacc)}`;
+
+    if (!data.history || data.history.length === 0) {
+      tbody.innerHTML = '';
+      emptyEl.classList.remove('d-none');
+      return;
+    }
+    emptyEl.classList.add('d-none');
+    tbody.innerHTML = data.history.map(r => `
+      <tr>
+        <td>${thaiDate(r.event_date)}</td>
+        <td>${EVENT_LABELS[r.event_type] || r.event_type}</td>
+        <td class="text-end">${fmt(r.qty_change)}</td>
+        <td class="text-end">฿${fmt(r.unit_cost)}</td>
+        <td class="text-end">${fmt(r.stock_after)}</td>
+        <td class="text-end fw-500">฿${fmt(r.wacc_after)}</td>
+        <td class="text-muted" style="font-size:12px">${r.reference_no || ''}</td>
+      </tr>`).join('');
+  }
+
+  async function loadWacc(forceModal) {
+    try {
+      const res = await fetch(`/products/${productId}/cost-history`);
+      const data = await res.json();
+      historyCache = data;
+      waccValue.textContent = `฿${fmt(data.wacc)}`;
+      if (forceModal) renderHistory(data);
+    } catch (e) {
+      waccValue.textContent = 'ข้อผิดพลาด';
+    }
+  }
+
+  // Load WACC value on page load
+  loadWacc(false);
+
+  waccDisplay.addEventListener('click', () => {
+    const modal = new bootstrap.Modal(document.getElementById('waccModal'));
+    modal.show();
+    const loading = document.getElementById('wacc-loading');
+    const content = document.getElementById('wacc-content');
+    if (historyCache) {
+      renderHistory(historyCache);
+    } else {
+      if (loading) loading.classList.remove('d-none');
+      if (content) content.classList.add('d-none');
+      loadWacc(true);
+    }
+  });
+})();
 </script>
 {% endblock %}

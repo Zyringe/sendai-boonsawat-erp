@@ -374,6 +374,15 @@ def product_detail(product_id):
                            bsn_pricing=bsn_pricing)
 
 
+@app.route('/products/<int:product_id>/cost-history')
+def product_cost_history(product_id):
+    if session.get('role') not in ('admin', 'manager'):
+        abort(403)
+    history = models.get_cost_history(product_id)
+    current_wacc = history[-1]['wacc_after'] if history else 0.0
+    return jsonify({'wacc': current_wacc, 'history': history})
+
+
 @app.route('/products/<int:product_id>/pricing')
 def product_pricing(product_id):
     product = models.get_product(product_id)
