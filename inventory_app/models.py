@@ -2480,8 +2480,12 @@ def recalculate_product_wacc(product_id, conn=None):
                     if current_stock < 0:
                         # Negative stock — freeze WACC
                         new_wacc = current_wacc
-                    elif current_wacc == 0 or current_stock == 0:
+                    elif current_wacc == 0:
+                        # First-time WACC — use purchase price
                         new_wacc = unit_cost
+                    elif current_stock == 0:
+                        # Zero stock — keep last known WACC
+                        new_wacc = current_wacc
                     else:
                         new_wacc = (current_stock * current_wacc + qty * unit_cost) / (current_stock + qty)
                     current_stock += qty
@@ -2504,8 +2508,11 @@ def recalculate_product_wacc(product_id, conn=None):
                 conv_cursor[ref] += 1
                 if current_stock < 0:
                     new_wacc = current_wacc
-                elif current_wacc == 0 or current_stock == 0:
+                elif current_wacc == 0:
                     new_wacc = unit_cost
+                elif current_stock == 0:
+                    # Zero stock — keep last known WACC
+                    new_wacc = current_wacc
                 else:
                     new_wacc = (current_stock * current_wacc + qty * unit_cost) / (current_stock + qty)
                 current_stock += qty
