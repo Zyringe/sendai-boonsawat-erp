@@ -4,6 +4,23 @@
 
 {% block content %}
 
+{# ── Search (ครอบคลุมทั้ง pending และ existing) ─────────────────────────────── #}
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <form method="get" action="{{ url_for('unit_conversions') }}" class="d-flex gap-2 align-items-center">
+      <div class="input-group input-group-sm" style="max-width:380px">
+        <span class="input-group-text"><i class="bi bi-search"></i></span>
+        <input type="search" name="q" value="{{ search }}"
+               placeholder="ค้นหาชื่อสินค้า / SKU…" class="form-control">
+      </div>
+      <button class="btn btn-sm btn-primary" type="submit">ค้นหา</button>
+      {% if search %}
+      <a href="{{ url_for('unit_conversions') }}" class="btn btn-sm btn-outline-secondary">ล้าง</a>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
 {# ── ส่วนที่รอกำหนด (pending) ───────────────────────────────────────────────── #}
 {% if not pending %}
 <div class="card mb-4">
@@ -72,14 +89,6 @@
     {% if total is defined %}
     <span class="text-subtle small">{{ total }} รายการ</span>
     {% endif %}
-    <form method="get" action="{{ url_for('unit_conversions') }}" class="ms-auto d-flex gap-2">
-      <input type="search" name="q" value="{{ search }}" placeholder="ค้นหาชื่อสินค้า / SKU…"
-             class="form-control form-control-sm" style="width:220px">
-      <button class="btn btn-sm btn-outline-secondary" type="submit">ค้นหา</button>
-      {% if search %}
-      <a href="{{ url_for('unit_conversions') }}" class="btn btn-sm btn-outline-danger">ล้าง</a>
-      {% endif %}
-    </form>
   </div>
   <div class="table-responsive">
     <table class="table mb-0 table-sm">

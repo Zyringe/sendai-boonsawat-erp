@@ -15,7 +15,8 @@ def to_base_units(quantity: int, mode: str, product) -> int:
 
 # ── Products ─────────────────────────────────────────────────────────────────
 
-def get_products(search=None, low_stock=False, hard_to_sell=False, page=1, per_page=50):
+def get_products(search=None, low_stock=False, hard_to_sell=False,
+                 location=None, in_stock=False, page=1, per_page=50):
     conn = get_connection()
     conditions = ["p.is_active = 1"]
     params = []
@@ -24,9 +25,20 @@ def get_products(search=None, low_stock=False, hard_to_sell=False, page=1, per_p
         params += [f"%{search}%", f"%{search}%"]
     if hard_to_sell:
         conditions.append("p.hard_to_sell = 1")
+    if location:
+        conditions.append(
+            "EXISTS (SELECT 1 FROM product_locations pl"
+            " WHERE pl.product_id = p.id AND pl.floor_no LIKE ?)"
+        )
+        params.append(f"%{location}%")
 
     where = " AND ".join(conditions)
-    having = "HAVING s.quantity <= p.low_stock_threshold" if low_stock else ""
+    having_clauses = []
+    if low_stock:
+        having_clauses.append("COALESCE(s.quantity, 0) <= p.low_stock_threshold")
+    if in_stock:
+        having_clauses.append("COALESCE(s.quantity, 0) > 0")
+    having = ("HAVING " + " AND ".join(having_clauses)) if having_clauses else ""
 
     sql = f"""
         SELECT p.*, COALESCE(s.quantity, 0) AS quantity,
@@ -458,9 +470,9 @@ def _sync_bsn_to_stock(conn, table: str, file_type: str):
         conn.execute(f"UPDATE {table} SET synced_to_stock=1 WHERE id=?", (row['id'],))
 
 
-def get_pending_unit_conversions():
+def get_pending_unit_conversions(search=None):
     conn = get_connection()
-    rows = conn.execute("""
+    sql = """
         SELECT t.product_id, t.bsn_unit, p.product_name, p.unit_type,
                t.row_count, t.example_doc
         FROM (
@@ -484,9 +496,13 @@ def get_pending_unit_conversions():
               SELECT 1 FROM unit_conversions uc
               WHERE uc.product_id = t.product_id AND uc.bsn_unit = t.bsn_unit
           )
-        GROUP BY t.product_id, t.bsn_unit
-        ORDER BY p.product_name
-    """).fetchall()
+    """
+    params = []
+    if search:
+        sql += " AND (p.product_name LIKE ? OR CAST(p.sku AS TEXT) LIKE ?)"
+        params += [f"%{search}%", f"%{search}%"]
+    sql += " GROUP BY t.product_id, t.bsn_unit ORDER BY p.product_name"
+    rows = conn.execute(sql, params).fetchall()
     conn.close()
     return rows
 
