@@ -45,7 +45,7 @@
       <i class="bi bi-arrow-left-right"></i> ประวัติสต็อก
     </a>
     <a href="{{ url_for('conversion_list') }}"
-       class="sidebar-link {% if 'conversion' in (request.endpoint or '') %}active{% endif %}">
+       class="sidebar-link {% if (request.endpoint or '').startswith('conversion_') or request.endpoint == 'conversion_list' %}active{% endif %}">
       <i class="bi bi-scissors"></i> แปลงสินค้า
     </a>
 
@@ -70,10 +70,12 @@
        class="sidebar-link {% if request.endpoint in ['supplier_list','supplier_summary'] %}active{% endif %}">
       <i class="bi bi-truck"></i> Supplier
     </a>
+    {% if is_admin %}
     <a href="{{ url_for('customer_map') }}"
        class="sidebar-link {% if request.endpoint == 'customer_map' %}active{% endif %}">
       <i class="bi bi-geo-alt"></i> แผนที่ลูกค้า
     </a>
+    {% endif %}
     <a href="{{ url_for('payment_customers') }}"
        class="sidebar-link {% if request.endpoint in ('payment_status','payment_customers','payment_customer_detail') %}active{% endif %}">
       <i class="bi bi-receipt"></i> สถานะชำระหนี้

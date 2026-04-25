@@ -291,8 +291,10 @@ def alerts_view():
 @app.route('/products')
 def product_list():
     search = request.args.get('q', '').strip()
+    location = request.args.get('location', '').strip()
     low_stock = request.args.get('low_stock') == '1'
     hard_to_sell = request.args.get('hard_to_sell') == '1'
+    in_stock = request.args.get('in_stock') == '1'
     page = int(request.args.get('page', 1))
     per_page = app.config['ITEMS_PER_PAGE']
 
@@ -300,6 +302,8 @@ def product_list():
         search=search or None,
         low_stock=low_stock,
         hard_to_sell=hard_to_sell,
+        location=location or None,
+        in_stock=in_stock,
         page=page,
         per_page=per_page,
     )
@@ -308,7 +312,8 @@ def product_list():
                            products=products, total=total,
                            page=page, pages=pages,
                            search=search, low_stock=low_stock,
-                           hard_to_sell=hard_to_sell)
+                           hard_to_sell=hard_to_sell,
+                           location=location, in_stock=in_stock)
 
 
 @app.route('/products/new', methods=['GET', 'POST'])
@@ -773,7 +778,7 @@ def unit_conversions():
     search = request.args.get('q', '').strip()
     page = int(request.args.get('page', 1))
     per_page = app.config['ITEMS_PER_PAGE']
-    pending = models.get_pending_unit_conversions()
+    pending = models.get_pending_unit_conversions(search=search or None)
     existing, total = models.get_all_unit_conversions(
         search=search or None, page=page, per_page=per_page
     )
