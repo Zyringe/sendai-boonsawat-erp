@@ -110,7 +110,7 @@
           </td>
           <td>
             {% if r.product_id %}
-              <a href="{{ url_for('product_detail', product_id=r.product_id) }}"
+              <a href="{{ url_for('products.product_detail', product_id=r.product_id) }}"
                  class="text-decoration-none text-main">{{ r.display_name }}</a>
             {% else %}
               <span class="text-warning small">

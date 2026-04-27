@@ -18,7 +18,7 @@
           </div>
         </div>
       </div>
-      <a href="{{ url_for('product_list', low_stock=1) }}"
+      <a href="{{ url_for('products.product_list', low_stock=1) }}"
          class="btn btn-sm w-100 mt-3"
          style="background:#fee2e2;color:#ef4444;border:none;font-weight:500">
         ดูรายการ →
@@ -82,7 +82,7 @@
           <div class="stat-card-value" style="color:#7c3aed">—</div>
         </div>
       </div>
-      <a href="{{ url_for('product_list') }}"
+      <a href="{{ url_for('products.product_list') }}"
          class="btn btn-sm w-100 mt-3"
          style="background:#ede9fe;color:#7c3aed;border:none;font-weight:500">
         รายการสินค้า →
@@ -115,7 +115,7 @@
           <td class="text-subtle font-mono">{{ t.created_at[:16] }}</td>
           <td><span class="badge badge-gray">{{ t.sku }}</span></td>
           <td>
-            <a href="{{ url_for('product_detail', product_id=t.product_id) }}"
+            <a href="{{ url_for('products.product_detail', product_id=t.product_id) }}"
                class="text-decoration-none fw-500 text-main">{{ t.product_name }}</a>
           </td>
           <td class="text-center">

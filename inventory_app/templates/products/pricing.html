@@ -7,9 +7,9 @@
 {# ── Breadcrumb ──────────────────────────────────────────────────────────── #}
 <nav aria-label="breadcrumb" class="mb-3">
   <ol class="breadcrumb">
-    <li class="breadcrumb-item"><a href="{{ url_for('product_list') }}">สินค้า</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('products.product_list') }}">สินค้า</a></li>
     <li class="breadcrumb-item">
-      <a href="{{ url_for('product_detail', product_id=product.id) }}">{{ product.product_name }}</a>
+      <a href="{{ url_for('products.product_detail', product_id=product.id) }}">{{ product.product_name }}</a>
     </li>
     <li class="breadcrumb-item active" aria-current="page">ราคาขาย</li>
   </ol>

@@ -20,11 +20,11 @@
       </div>
       <div class="col-auto">
         <button type="submit" class="btn btn-primary btn-sm">กรอง</button>
-        <a href="{{ url_for('product_trade_summary', product_id=data.product.id) }}"
+        <a href="{{ url_for('products.product_trade_summary', product_id=data.product.id) }}"
            class="btn btn-sm btn-outline-secondary ms-1">ล้าง</a>
       </div>
       <div class="col-auto ms-auto d-flex gap-2">
-        <a href="{{ url_for('product_detail', product_id=data.product.id) }}"
+        <a href="{{ url_for('products.product_detail', product_id=data.product.id) }}"
            class="btn btn-sm btn-outline-secondary">
           <i class="bi bi-box-seam me-1"></i>ข้อมูลสต็อก
         </a>
