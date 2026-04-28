@@ -51,7 +51,7 @@
           <td class="font-mono text-subtle">{{ t.created_at[:16] }}</td>
           <td><span class="badge badge-gray">{{ t.sku }}</span></td>
           <td>
-            <a href="{{ url_for('product_detail', product_id=t.product_id) }}"
+            <a href="{{ url_for('products.product_detail', product_id=t.product_id) }}"
                class="text-decoration-none text-main">{{ t.product_name }}</a>
           </td>
           <td class="text-center">

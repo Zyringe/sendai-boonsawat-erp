@@ -7,9 +7,9 @@
 {# ── Breadcrumb ──────────────────────────────────────────────────────────── #}
 <nav aria-label="breadcrumb" class="mb-3">
   <ol class="breadcrumb">
-    <li class="breadcrumb-item"><a href="{{ url_for('product_list') }}">สินค้า</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('products.product_list') }}">สินค้า</a></li>
     <li class="breadcrumb-item">
-      <a href="{{ url_for('product_detail', product_id=product.id) }}">{{ product.product_name }}</a>
+      <a href="{{ url_for('products.product_detail', product_id=product.id) }}">{{ product.product_name }}</a>
     </li>
     <li class="breadcrumb-item active" aria-current="page">ราคาขาย</li>
   </ol>
@@ -20,8 +20,8 @@
   <div class="col-sm-6 col-xl-3">
     <div class="stat-card">
       <div class="d-flex align-items-center gap-3">
-        <div class="stat-card-icon" style="background:#fef9c3">
-          <i class="bi bi-tag" style="color:#ca8a04"></i>
+        <div class="stat-card-icon" style="background:#fdf3dd">
+          <i class="bi bi-tag" style="color:#8a5d00"></i>
         </div>
         <div>
           <div class="stat-card-label">ราคาตั้งเฉลี่ย</div>
@@ -33,8 +33,8 @@
   <div class="col-sm-6 col-xl-3">
     <div class="stat-card">
       <div class="d-flex align-items-center gap-3">
-        <div class="stat-card-icon" style="background:#dcfce7">
-          <i class="bi bi-cash-coin" style="color:#16a34a"></i>
+        <div class="stat-card-icon" style="background:#dcf2e0">
+          <i class="bi bi-cash-coin" style="color:#2e7d3a"></i>
         </div>
         <div>
           <div class="stat-card-label">ราคาจริงเฉลี่ย</div>
@@ -60,7 +60,7 @@
     <div class="stat-card">
       <div class="d-flex align-items-center gap-3">
         <div class="stat-card-icon" style="background:#f3e8ff">
-          <i class="bi bi-box-seam" style="color:#7c3aed"></i>
+          <i class="bi bi-box-seam" style="color:#8a5d00"></i>
         </div>
         <div>
           <div class="stat-card-label">ปริมาณรวม</div>

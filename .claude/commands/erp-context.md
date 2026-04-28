@@ -1,6 +1,8 @@
-# ERP System Context — Sendai Boonsawat
+# Sendy — ERP System Context — Sendai Boonsawat
 
-Load this at the start of every session to get full context of the current state of the ERP system.
+> **Sendy** = ชื่อเรียก ERP backend app (Flask) ของ BSN/Sendai Trading. ทุกที่ที่เห็น "ERP" ในไฟล์นี้ = Sendy.
+
+Load this at the start of every session to get full context of the current state of Sendy (the ERP).
 
 ---
 
@@ -9,7 +11,7 @@ Load this at the start of every session to get full context of the current state
 - SQLite → `inventory_app/instance/inventory.db`
 - Encoding: UTF-8 for DB, **cp874** for BSN CSV files
 - Python: `/usr/local/bin/python3` (not system python)
-- Dev server: `mcp__Claude_Preview__preview_start` → "Flask ERP Server" (port 5001)
+- Dev server: `mcp__Claude_Preview__preview_start` → "Sendy Server" (port 5001)
 
 ---
 
@@ -116,12 +118,7 @@ Load this at the start of every session to get full context of the current state
 - หน่วย BSN ที่มักสับสน: `อน`=อัน, `ผง`=แผง, `ดก`=ดอก, `กส`=กิโลกรัม, `ชด`=ชุด, `ซง`=ซอง
 
 ## VAT Convention
-| vat_type | ความหมาย | UI label |
-|----------|----------|----------|
-| 1 | ราคา **รวม VAT** แล้ว | "รวม VAT" (badge-success) |
-| 2 | ราคา **ยังไม่รวม VAT** → +7% | "แยก VAT" (badge-info) + footer แสดง VAT 7% + ยอดรวม |
-| 0 | ยกเว้น VAT | "ยกเว้น VAT" (badge-gray) |
-
+ดู `/erp-formats` สำหรับตาราง vat_type (1=รวม, 2=แยก+7%, 0=ยกเว้น) และ UI badge
 ระวัง: ชื่อเดิม "มี VAT" / "ไม่มี VAT" ใช้ไม่ได้แล้ว — แก้แล้ว 2026-04-17
 
 ## Payment Status Rules

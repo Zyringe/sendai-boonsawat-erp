@@ -5,7 +5,7 @@
 
 {% block topbar_actions %}
 {% if pending_map > 0 %}
-<a href="{{ url_for('mapping') }}" class="btn btn-sm" style="background:#fef9c3;color:#92400e;border:none">
+<a href="{{ url_for('mapping') }}" class="btn btn-sm" style="background:#fdf3dd;color:#6e4a00;border:none">
   <i class="bi bi-tags me-1"></i>ผูกรหัส ({{ pending_map }})
 </a>
 {% endif %}
@@ -56,7 +56,7 @@
           <td>{{ doc_link(r.doc_no) }}</td>
           <td>
             {% if r.product_id %}
-              <a href="{{ url_for('product_detail', product_id=r.product_id) }}"
+              <a href="{{ url_for('products.product_detail', product_id=r.product_id) }}"
                  class="text-decoration-none text-main">{{ r.display_name }}</a>
             {% else %}
               <span class="text-warning small">

@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS sales_transactions (
     discount            TEXT,
     total               REAL,
     net                 REAL,
+    ref_invoice         TEXT,                                 -- only set on SR rows: original IV being credited
     created_at          TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
@@ -127,6 +128,18 @@ CREATE TABLE IF NOT EXISTS product_locations (
     floor_no    TEXT    NOT NULL,
     created_at  TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
 );
+
+-- Audit log for tracking row-level changes (rollout per-table via triggers)
+CREATE TABLE IF NOT EXISTS audit_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_name      TEXT    NOT NULL,
+    row_id          INTEGER NOT NULL,
+    action          TEXT    NOT NULL CHECK(action IN ('INSERT','UPDATE','DELETE')),
+    changed_fields  TEXT,
+    user            TEXT,
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_audit_table_row ON audit_log(table_name, row_id);
 
 CREATE TABLE IF NOT EXISTS received_payments (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -187,6 +200,17 @@ CREATE TABLE IF NOT EXISTS conversion_formulas (
     is_active         INTEGER NOT NULL DEFAULT 1,
     created_at        TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
 );
+
+CREATE TABLE IF NOT EXISTS product_barcodes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id  INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    barcode     TEXT    NOT NULL UNIQUE,
+    is_primary  INTEGER NOT NULL DEFAULT 0,
+    source      TEXT,
+    note        TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_product_barcodes_product ON product_barcodes(product_id);
 
 CREATE TABLE IF NOT EXISTS conversion_formula_inputs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -266,6 +290,10 @@ def init_db():
         """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_st_doc_base ON sales_transactions(doc_base)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_pi_iv_no ON paid_invoices(iv_no)")
+    # Migration: ref_invoice column on sales_transactions (only populated on SR/credit-note rows)
+    if 'ref_invoice' not in cols:
+        conn.execute("ALTER TABLE sales_transactions ADD COLUMN ref_invoice TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_st_ref_invoice ON sales_transactions(ref_invoice)")
     # Migration: create conversion tables if missing
     existing_tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
     if 'conversion_formulas' not in existing_tables:
@@ -337,12 +365,35 @@ def init_db():
                 created_at        TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
             );
         """)
+    # Migration: create ecommerce_listings table if missing
+    if 'ecommerce_listings' not in existing_tables:
+        conn.executescript("""
+            CREATE TABLE ecommerce_listings (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                platform     TEXT    NOT NULL CHECK(platform IN ('shopee','lazada')),
+                item_name    TEXT    NOT NULL,
+                variation    TEXT,
+                seller_sku   TEXT,
+                listing_key  TEXT    NOT NULL UNIQUE,
+                sample_price REAL,
+                product_id   INTEGER REFERENCES products(id),
+                qty_per_sale REAL    NOT NULL DEFAULT 1,
+                is_ignored   INTEGER NOT NULL DEFAULT 0,
+                created_at   TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+            );
+            CREATE INDEX idx_el_platform ON ecommerce_listings(platform, product_id);
+        """)
+    else:
+        # Migration: add qty_per_sale if table exists but column missing
+        el_cols = [r[1] for r in conn.execute("PRAGMA table_info(ecommerce_listings)").fetchall()]
+        if 'qty_per_sale' not in el_cols:
+            conn.execute("ALTER TABLE ecommerce_listings ADD COLUMN qty_per_sale REAL NOT NULL DEFAULT 1")
     # Migration: create default admin user if users table is empty
     if not conn.execute("SELECT 1 FROM users LIMIT 1").fetchone():
         import config as _cfg
         conn.execute(
             "INSERT INTO users(username, password_hash, display_name, role) VALUES (?,?,?,?)",
-            ('admin', generate_password_hash(_cfg.ADMIN_PASSWORD), 'Administrator', 'admin')
+            ('admin', generate_password_hash(_cfg.ADMIN_PASSWORD, method='pbkdf2:sha256'), 'Administrator', 'admin')
         )
     conn.commit()
     conn.close()

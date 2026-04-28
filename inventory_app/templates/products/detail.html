@@ -4,8 +4,12 @@
 {% block page_title %}{{ product.product_name }}{% endblock %}
 
 {% block topbar_actions %}
+<a href="{{ url_for('labels_view') }}?add={{ product.id }}" class="btn btn-sm btn-outline-secondary"
+   onclick="event.preventDefault(); addToLabelQueue(this.href);">
+  <i class="bi bi-upc-scan me-1"></i>พิมพ์ป้าย
+</a>
 {% if is_admin %}
-<a href="{{ url_for('product_edit', product_id=product.id) }}" class="btn btn-sm btn-outline-secondary">
+<a href="{{ url_for('products.product_edit', product_id=product.id) }}" class="btn btn-sm btn-outline-secondary">
   <i class="bi bi-pencil me-1"></i>แก้ไข
 </a>
 {% endif %}
@@ -14,7 +18,7 @@
 {% block content %}
 <nav aria-label="breadcrumb" class="mb-3">
   <ol class="breadcrumb">
-    <li class="breadcrumb-item"><a href="{{ url_for('product_list') }}">สินค้า</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('products.product_list') }}">สินค้า</a></li>
     <li class="breadcrumb-item active">{{ product.product_name }}</li>
   </ol>
 </nav>
@@ -67,12 +71,12 @@
       <div class="card-footer d-flex gap-2">
         <a href="{{ url_for('stock_in', product_id=product.id) }}"
            class="btn btn-sm flex-fill fw-500"
-           style="background:#dcfce7;color:#16a34a;border:none">
+           style="background:#dcf2e0;color:#2e7d3a;border:none">
           <i class="bi bi-arrow-down-circle me-1"></i>รับเข้า
         </a>
         <a href="{{ url_for('stock_out', product_id=product.id) }}"
            class="btn btn-sm flex-fill fw-500"
-           style="background:#fee2e2;color:#ef4444;border:none">
+           style="background:#fdecee;color:#c41e2a;border:none">
           <i class="bi bi-arrow-up-circle me-1"></i>จ่ายออก
         </a>
         <a href="{{ url_for('stock_adjust', product_id=product.id) }}"
@@ -99,7 +103,7 @@
           </button>
         </div>
         <form method="post"
-              action="{{ url_for('product_online_stock', product_id=product.id) }}"
+              action="{{ url_for('products.product_online_stock', product_id=product.id) }}"
               class="d-flex gap-2 align-items-center">
           <input type="hidden" name="platform" id="onlinePlatform" value="shopee">
           <input type="number" name="quantity" id="onlineQty" step="0.5" min="0"
@@ -126,8 +130,10 @@
             <tr><td class="text-subtle">หน่วย</td><td>{{ product.unit_type }}</td></tr>
             <tr><td class="text-subtle">บรรจุ/ลัง</td><td>{{ product.units_per_carton or '–' }}</td></tr>
             <tr><td class="text-subtle">บรรจุ/กล่อง</td><td>{{ product.units_per_box or '–' }}</td></tr>
-            <tr><td class="text-subtle">ขายยาก</td>
-                <td>{% if product.hard_to_sell %}<span class="badge badge-warning">ใช่</span>{% else %}–{% endif %}</td></tr>
+            <tr><td class="text-subtle">บาร์โค้ด</td>
+                <td>
+                  <span id="bc-list" class="font-mono small text-subtle">…</span>
+                </td></tr>
             {% if is_manager %}
             <tr>
               <td class="text-subtle">ต้นทุน (WACC)</td>
@@ -145,7 +151,7 @@
               <td class="text-subtle">ราคาขายปกติ</td>
               <td class="fw-500">
                 {% if bsn_pricing.avg_list_price %}
-                <a href="{{ url_for('product_pricing', product_id=product.id) }}" class="text-decoration-none">
+                <a href="{{ url_for('products.product_pricing', product_id=product.id) }}" class="text-decoration-none">
                   ฿{{ bsn_pricing.avg_list_price | fmt_price }}
                   {% if bsn_pricing.price_variants > 1 %}
                   <span class="text-subtle small">({{ bsn_pricing.price_variants }} แบบ)</span>
@@ -159,7 +165,7 @@
               <td class="text-subtle">ราคาขายจริง</td>
               <td class="fw-700 text-accent" style="font-size:1.05rem">
                 {% if bsn_pricing.avg_effective %}
-                <a href="{{ url_for('product_pricing', product_id=product.id) }}" class="text-decoration-none text-accent">
+                <a href="{{ url_for('products.product_pricing', product_id=product.id) }}" class="text-decoration-none text-accent">
                   ฿{{ bsn_pricing.avg_effective | fmt_price }}
                   <i class="bi bi-arrow-right-short"></i>
                 </a>
@@ -206,7 +212,7 @@
               <h6 class="modal-title mb-0"><i class="bi bi-geo-alt me-1"></i>สถานที่เก็บ</h6>
               <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
             </div>
-            <form method="post" action="{{ url_for('product_location_save', product_id=product.id) }}" id="locationForm">
+            <form method="post" action="{{ url_for('products.product_location_save', product_id=product.id) }}" id="locationForm">
               <div class="modal-body py-2 px-3">
                 <div id="locationFields">
                   {% for loc in locations %}
@@ -283,9 +289,9 @@
     {% endif %}
 
     {% if is_admin %}
-    <form method="post" action="{{ url_for('product_deactivate', product_id=product.id) }}"
+    <form method="post" action="{{ url_for('products.product_deactivate', product_id=product.id) }}"
           onsubmit="return confirm('ปิดใช้งานสินค้านี้?')">
-      <button type="submit" class="btn btn-sm w-100" style="background:#fee2e2;color:#ef4444;border:none">
+      <button type="submit" class="btn btn-sm w-100" style="background:#fdecee;color:#c41e2a;border:none">
         <i class="bi bi-trash me-1"></i>ปิดใช้งานสินค้า
       </button>
     </form>
@@ -300,7 +306,7 @@
       <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-percent me-2 text-accent"></i>โปรโมชัน</span>
         {% if is_admin %}
-        <a href="{{ url_for('promotion_new', product_id=product.id) }}"
+        <a href="{{ url_for('products.promotion_new', product_id=product.id) }}"
            class="btn btn-xs" style="background:var(--accent);color:#fff;border:none">
           <i class="bi bi-plus me-1"></i>เพิ่ม
         </a>
@@ -337,10 +343,10 @@
               </td>
               <td>
                 {% if is_admin and promo.is_active %}
-                <form method="post" action="{{ url_for('promotion_deactivate', promo_id=promo.id) }}"
+                <form method="post" action="{{ url_for('products.promotion_deactivate', promo_id=promo.id) }}"
                       onsubmit="return confirm('ยกเลิกโปรโมชันนี้?')">
                   <button type="submit" class="btn btn-xs"
-                          style="background:#fee2e2;color:#ef4444;border:none">ยกเลิก</button>
+                          style="background:#fdecee;color:#c41e2a;border:none">ยกเลิก</button>
                 </form>
                 {% endif %}
               </td>
@@ -399,7 +405,7 @@
           <ul class="pagination pagination-sm mb-0 justify-content-center flex-wrap">
             {% set ns = namespace(prev=0) %}
             <li class="page-item {% if txn_page == 1 %}disabled{% endif %}">
-              <a class="page-link" href="{{ url_for('product_detail', product_id=product.id, txn_page=txn_page-1) }}">&laquo;</a>
+              <a class="page-link" href="{{ url_for('products.product_detail', product_id=product.id, txn_page=txn_page-1) }}">&laquo;</a>
             </li>
             {% for p in range(1, txn_pages+1) %}
               {% if p == 1 or p == txn_pages or (p >= txn_page-2 and p <= txn_page+2) %}
@@ -407,13 +413,13 @@
                 <li class="page-item disabled"><span class="page-link">…</span></li>
                 {% endif %}
                 <li class="page-item {% if p == txn_page %}active{% endif %}">
-                  <a class="page-link" href="{{ url_for('product_detail', product_id=product.id, txn_page=p) }}">{{ p }}</a>
+                  <a class="page-link" href="{{ url_for('products.product_detail', product_id=product.id, txn_page=p) }}">{{ p }}</a>
                 </li>
                 {% set ns.prev = p %}
               {% endif %}
             {% endfor %}
             <li class="page-item {% if txn_page == txn_pages %}disabled{% endif %}">
-              <a class="page-link" href="{{ url_for('product_detail', product_id=product.id, txn_page=txn_page+1) }}">&raquo;</a>
+              <a class="page-link" href="{{ url_for('products.product_detail', product_id=product.id, txn_page=txn_page+1) }}">&raquo;</a>
             </li>
           </ul>
         </nav>
@@ -561,5 +567,44 @@ document.getElementById('locationModal')?.addEventListener('shown.bs.modal', () 
     }
   });
 })();
+
+// ── Load product barcodes inline ──
+(async function loadBc() {
+  try {
+    const r = await fetch(`/api/products/{{ product.id }}/barcodes`);
+    if (!r.ok) return;
+    const data = await r.json();
+    const el = document.getElementById('bc-list');
+    if (!el) return;
+    if (!data.items.length) {
+      el.textContent = '— ยังไม่มี —';
+    } else {
+      el.classList.remove('text-subtle');
+      el.innerHTML = data.items.map(b =>
+        `<span class="badge badge-gray me-1">${b.barcode}${b.is_primary ? ' ⭐' : ''}</span>`
+      ).join('');
+    }
+  } catch (e) {}
+})();
+
+// ── Quick "Add to label queue" from product detail ──
+async function addToLabelQueue(_href) {
+  const KEY = 'sendy.labels.queue.v1';
+  const pid = {{ product.id }};
+  try {
+    const res = await fetch(`/api/products/search?q={{ product.sku }}&limit=5`);
+    const data = await res.json();
+    const item = (data.items || []).find(x => x.id === pid);
+    if (!item) { window.location.href = '{{ url_for("labels_view") }}'; return; }
+    const queue = JSON.parse(localStorage.getItem(KEY) || '[]');
+    const existing = queue.find(x => x.id === pid);
+    if (existing) existing.qty = (existing.qty || 1) + 1;
+    else queue.push({ ...item, qty: 1 });
+    localStorage.setItem(KEY, JSON.stringify(queue));
+    window.location.href = '{{ url_for("labels_view") }}';
+  } catch (e) {
+    window.location.href = '{{ url_for("labels_view") }}';
+  }
+}
 </script>
 {% endblock %}

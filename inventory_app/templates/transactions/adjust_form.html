@@ -5,8 +5,8 @@
 {% block content %}
 <nav aria-label="breadcrumb" class="mb-3">
   <ol class="breadcrumb">
-    <li class="breadcrumb-item"><a href="{{ url_for('product_list') }}">สินค้า</a></li>
-    <li class="breadcrumb-item"><a href="{{ url_for('product_detail', product_id=product.id) }}">{{ product.product_name }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('products.product_list') }}">สินค้า</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('products.product_detail', product_id=product.id) }}">{{ product.product_name }}</a></li>
     <li class="breadcrumb-item active">ปรับยอด</li>
   </ol>
 </nav>
@@ -14,7 +14,7 @@
 <div class="row justify-content-center">
   <div class="col-lg-5">
     <div class="card">
-      <div class="card-header" style="background:#fef9c3;color:#92400e">
+      <div class="card-header" style="background:#fdf3dd;color:#6e4a00">
         <i class="bi bi-sliders me-2"></i>ปรับยอดสต็อก
       </div>
       <div class="card-body">
@@ -50,10 +50,10 @@
                       placeholder="เช่น นับสต็อกประจำเดือน, แก้ไขข้อผิดพลาด"></textarea>
           </div>
           <div class="d-flex gap-2">
-            <a href="{{ url_for('product_detail', product_id=product.id) }}"
+            <a href="{{ url_for('products.product_detail', product_id=product.id) }}"
                class="btn btn-outline-secondary flex-fill">ยกเลิก</a>
             <button type="submit" class="btn flex-fill fw-500"
-                    style="background:#f59e0b;border-color:#f59e0b;color:#fff">
+                    style="background:#f5a800;border-color:#f5a800;color:#fff">
               <i class="bi bi-check-circle me-1"></i>ยืนยันการปรับยอด
             </button>
           </div>

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent for daily ERP DB backup.
+
+  Install:
+    cp /Users/putty/Documents/Sendai-Boonsawat/ERP/scripts/com.boonsawat.erp.backup.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.boonsawat.erp.backup.plist
+
+  Verify it's loaded:
+    launchctl list | grep com.boonsawat.erp.backup
+
+  Trigger a one-off run for testing:
+    launchctl start com.boonsawat.erp.backup
+
+  Unload (stop scheduling):
+    launchctl unload ~/Library/LaunchAgents/com.boonsawat.erp.backup.plist
+
+  macOS TCC / Full Disk Access:
+    Because the script reads and writes inside ~/Documents (which is sandboxed
+    on modern macOS), the launchd job will fail silently with a "Operation not
+    permitted" or empty output unless Full Disk Access is granted to the
+    process running the script. Grant FDA to:
+      System Settings → Privacy & Security → Full Disk Access
+        → add /bin/bash (and/or /usr/bin/sqlite3)
+    If FDA cannot be granted, run the backup from an interactive terminal
+    session (which inherits the user's TCC consent) via cron at the user
+    level, or move the DB out of ~/Documents.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.boonsawat.erp.backup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/putty/Documents/Sendai-Boonsawat/ERP/scripts/backup_db.sh</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>12</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/putty/Documents/Sendai-Boonsawat/ERP/data/logs/backup.stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/putty/Documents/Sendai-Boonsawat/ERP/data/logs/backup.stderr.log</string>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/putty/Documents/Sendai-Boonsawat/ERP</string>
+</dict>
+</plist>

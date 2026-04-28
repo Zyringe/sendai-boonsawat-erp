@@ -155,7 +155,25 @@
       "Bash(curl -s \"https://api.github.com/repos/Zyringe/sendai-boonsawat-erp/pulls?head=Zyringe:fix/update-overall-code&state=all\")",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('html_url'\\) or d.get\\('message'\\) or d\\)\")",
       "Bash(sqlite3 /Users/put/Documents/Sendai-Boonsawat/ERP/inventory_app/instance/inventory.db 'SELECT id FROM products WHERE product_name='\\\\''บานพับผีเสื้อ สแตนเลส 4 นิ้ว'\\\\'';')",
-      "Bash(sqlite3 /Users/put/Documents/Sendai-Boonsawat/ERP/inventory_app/instance/inventory.db 'SELECT id, product_name, unit_type, cost_price FROM products WHERE product_name LIKE '\\\\''บานพับผีเสื้อ สแตนเลส 4 นิ้ว'\\\\'';')"
+      "Bash(sqlite3 /Users/put/Documents/Sendai-Boonsawat/ERP/inventory_app/instance/inventory.db 'SELECT id, product_name, unit_type, cost_price FROM products WHERE product_name LIKE '\\\\''บานพับผีเสื้อ สแตนเลส 4 นิ้ว'\\\\'';')",
+      "Bash(pkill -f \"python3.*app.py\")",
+      "Bash(/usr/bin/python3 --version)",
+      "Bash(/usr/bin/python3 -c \"import flask; print\\('flask ok', flask.__version__\\)\")",
+      "Bash(/usr/bin/python3 -m venv inventory_app/.venv)",
+      "Bash(inventory_app/.venv/bin/python -m pip install --upgrade pip)",
+      "Bash(inventory_app/.venv/bin/pip install *)",
+      "Bash(mkdir -p ~/.virtualenvs)",
+      "Bash(/usr/bin/python3 -m venv ~/.virtualenvs/erp)",
+      "Bash(~/.virtualenvs/erp/bin/pip install *)",
+      "Bash(/Users/putty/.virtualenvs/erp/bin/python app.py)",
+      "Bash(curl -sS -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://127.0.0.1:5001/)",
+      "Bash(awk '{print $2}')",
+      "Bash(/Users/putty/.virtualenvs/erp/bin/pip install *)",
+      "Bash(/Users/putty/.virtualenvs/erp/bin/pip freeze *)",
+      "Bash(zsh -n ~/.zshrc)",
+      "Bash(/Users/putty/.virtualenvs/erp/bin/python)",
+      "Bash(/Users/putty/.virtualenvs/erp/bin/python -c \"import hashlib; print\\(hashlib.algorithms_available\\); print\\('scrypt' in dir\\(hashlib\\)\\)\")",
+      "Bash(/Users/putty/.virtualenvs/erp/bin/pip show *)"
     ]
   }
 }

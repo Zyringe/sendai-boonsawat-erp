@@ -8,8 +8,8 @@
   <div class="col-sm-6 col-xl-3">
     <div class="stat-card">
       <div class="d-flex align-items-center gap-3">
-        <div class="stat-card-icon" style="background:#fee2e2">
-          <i class="bi bi-exclamation-triangle" style="color:#ef4444"></i>
+        <div class="stat-card-icon" style="background:#fdecee">
+          <i class="bi bi-exclamation-triangle" style="color:#c41e2a"></i>
         </div>
         <div>
           <div class="stat-card-label">สต็อกต่ำกว่าเกณฑ์</div>
@@ -18,9 +18,9 @@
           </div>
         </div>
       </div>
-      <a href="{{ url_for('product_list', low_stock=1) }}"
+      <a href="{{ url_for('products.product_list', low_stock=1) }}"
          class="btn btn-sm w-100 mt-3"
-         style="background:#fee2e2;color:#ef4444;border:none;font-weight:500">
+         style="background:#fdecee;color:#c41e2a;border:none;font-weight:500">
         ดูรายการ →
       </a>
     </div>
@@ -30,8 +30,8 @@
   <div class="col-sm-6 col-xl-3">
     <div class="stat-card">
       <div class="d-flex align-items-center gap-3">
-        <div class="stat-card-icon" style="background:#dcfce7">
-          <i class="bi bi-arrow-down-circle" style="color:#22c55e"></i>
+        <div class="stat-card-icon" style="background:#dcf2e0">
+          <i class="bi bi-arrow-down-circle" style="color:#2e7d3a"></i>
         </div>
         <div>
           <div class="stat-card-label">รับเข้าล่าสุด</div>
@@ -42,7 +42,7 @@
       </div>
       <a href="{{ url_for('transaction_history', type='IN') }}"
          class="btn btn-sm w-100 mt-3"
-         style="background:#dcfce7;color:#16a34a;border:none;font-weight:500">
+         style="background:#dcf2e0;color:#2e7d3a;border:none;font-weight:500">
         ดูประวัติ →
       </a>
     </div>
@@ -52,8 +52,8 @@
   <div class="col-sm-6 col-xl-3">
     <div class="stat-card">
       <div class="d-flex align-items-center gap-3">
-        <div class="stat-card-icon" style="background:#fef9c3">
-          <i class="bi bi-arrow-up-circle" style="color:#f59e0b"></i>
+        <div class="stat-card-icon" style="background:#fdf3dd">
+          <i class="bi bi-arrow-up-circle" style="color:#f5a800"></i>
         </div>
         <div>
           <div class="stat-card-label">จ่ายออกล่าสุด</div>
@@ -64,7 +64,7 @@
       </div>
       <a href="{{ url_for('transaction_history', type='OUT') }}"
          class="btn btn-sm w-100 mt-3"
-         style="background:#fef9c3;color:#92400e;border:none;font-weight:500">
+         style="background:#fdf3dd;color:#8a5d00;border:none;font-weight:500">
         ดูประวัติ →
       </a>
     </div>
@@ -74,17 +74,17 @@
   <div class="col-sm-6 col-xl-3">
     <div class="stat-card">
       <div class="d-flex align-items-center gap-3">
-        <div class="stat-card-icon" style="background:#ede9fe">
-          <i class="bi bi-grid-3x3-gap" style="color:#7c3aed"></i>
+        <div class="stat-card-icon" style="background:#ede9e2">
+          <i class="bi bi-grid-3x3-gap" style="color:#1a1a1a"></i>
         </div>
         <div>
           <div class="stat-card-label">จัดการสินค้า</div>
-          <div class="stat-card-value" style="color:#7c3aed">—</div>
+          <div class="stat-card-value" style="color:#1a1a1a">—</div>
         </div>
       </div>
-      <a href="{{ url_for('product_list') }}"
+      <a href="{{ url_for('products.product_list') }}"
          class="btn btn-sm w-100 mt-3"
-         style="background:#ede9fe;color:#7c3aed;border:none;font-weight:500">
+         style="background:#ede9e2;color:#1a1a1a;border:none;font-weight:500">
         รายการสินค้า →
       </a>
     </div>
@@ -115,7 +115,7 @@
           <td class="text-subtle font-mono">{{ t.created_at[:16] }}</td>
           <td><span class="badge badge-gray">{{ t.sku }}</span></td>
           <td>
-            <a href="{{ url_for('product_detail', product_id=t.product_id) }}"
+            <a href="{{ url_for('products.product_detail', product_id=t.product_id) }}"
                class="text-decoration-none fw-500 text-main">{{ t.product_name }}</a>
           </td>
           <td class="text-center">

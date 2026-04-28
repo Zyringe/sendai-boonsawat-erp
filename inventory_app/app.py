@@ -1,4 +1,3 @@
-import csv
 import io
 import os
 import sys
@@ -15,7 +14,10 @@ import models
 from database import init_db, get_connection
 from parse_weekly import parse_sales, parse_purchases, detect_file_type
 from parse_platform import (parse_shopee, parse_lazada, export_shopee, export_lazada,
-                            export_mapping, parse_mapping)
+                            export_mapping, parse_mapping,
+                            parse_shopee_orders, parse_lazada_orders,
+                            export_listing_mapping, parse_listing_mapping)
+from blueprints.products import bp_products
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = config.SECRET_KEY
@@ -25,6 +27,8 @@ app.config['ITEMS_PER_PAGE'] = config.ITEMS_PER_PAGE
 app.config['DB_ROUTES_ENABLED'] = False
 
 os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
+
+app.register_blueprint(bp_products)
 
 with app.app_context():
     init_db()
@@ -41,13 +45,13 @@ with app.app_context():
 _STAFF_POST_OK = frozenset([
     'login', 'logout',
     'import_weekly', 'mapping_save', 'unit_conversions_save', 'unit_conversions_edit',
-    'product_location_save',
+    'products.product_location_save',
     'admin_exit_simulate',
-    'conversion_new', 'conversion_edit',
+    'conversion_new', 'conversion_edit', 'conversion_run', 'conversion_delete',
+    'api_product_barcodes',
 ])
 _MANAGER_POST_OK = _STAFF_POST_OK | frozenset([
-    'import_payments', 'product_online_stock',
-    'conversion_run', 'conversion_new', 'conversion_edit', 'conversion_delete',
+    'import_payments', 'products.product_online_stock',
 ])
 # admin can POST anything
 
@@ -146,7 +150,7 @@ def user_new():
     try:
         conn.execute(
             "INSERT INTO users(username, password_hash, display_name, role) VALUES (?,?,?,?)",
-            (username, generate_password_hash(password), display_name or username, role)
+            (username, generate_password_hash(password, method='pbkdf2:sha256'), display_name or username, role)
         )
         conn.commit()
         flash(f'เพิ่มผู้ใช้ {username} ({role}) สำเร็จ', 'success')
@@ -171,7 +175,7 @@ def user_edit(uid):
     if new_password:
         conn.execute(
             "UPDATE users SET display_name=?, role=?, is_active=?, password_hash=? WHERE id=?",
-            (display_name, role, is_active, generate_password_hash(new_password), uid)
+            (display_name, role, is_active, generate_password_hash(new_password, method='pbkdf2:sha256'), uid)
         )
     else:
         conn.execute(
@@ -286,192 +290,14 @@ def alerts_view():
     return render_template('alerts.html', alerts=alerts)
 
 
-# ── Products ──────────────────────────────────────────────────────────────────
+# ── Products — moved to blueprints/products.py ────────────────────────────────
+# Routes: /products, /products/new, /products/<id>, /products/<id>/cost-history,
+#         /products/<id>/pricing, /products/<id>/edit, /products/<id>/location,
+#         /products/<id>/online-stock, /products/<id>/deactivate,
+#         /products/<id>/trade, /products/<id>/promotions/new,
+#         /promotions/<id>/deactivate, /import, /import/confirm
+# (registered via bp_products above)
 
-@app.route('/products')
-def product_list():
-    search = request.args.get('q', '').strip()
-    location = request.args.get('location', '').strip()
-    low_stock = request.args.get('low_stock') == '1'
-    hard_to_sell = request.args.get('hard_to_sell') == '1'
-    in_stock = request.args.get('in_stock') == '1'
-    page = int(request.args.get('page', 1))
-    per_page = app.config['ITEMS_PER_PAGE']
-
-    products, total = models.get_products(
-        search=search or None,
-        low_stock=low_stock,
-        hard_to_sell=hard_to_sell,
-        location=location or None,
-        in_stock=in_stock,
-        page=page,
-        per_page=per_page,
-    )
-    pages = (total + per_page - 1) // per_page
-    return render_template('products/list.html',
-                           products=products, total=total,
-                           page=page, pages=pages,
-                           search=search, low_stock=low_stock,
-                           hard_to_sell=hard_to_sell,
-                           location=location, in_stock=in_stock)
-
-
-@app.route('/products/new', methods=['GET', 'POST'])
-def product_new():
-    if request.method == 'POST':
-        f = request.form
-        try:
-            data = {
-                'sku': int(f['sku']),
-                'product_name': f['product_name'].strip(),
-                'units_per_carton': int(f['units_per_carton']) if f.get('units_per_carton') else None,
-                'units_per_box': int(f['units_per_box']) if f.get('units_per_box') else None,
-                'unit_type': f.get('unit_type', 'ตัว').strip() or 'ตัว',
-                'hard_to_sell': 1 if f.get('hard_to_sell') else 0,
-                'cost_price': float(f.get('cost_price') or 0),
-                'base_sell_price': float(f.get('base_sell_price') or 0),
-                'low_stock_threshold': int(f.get('low_stock_threshold') or config.LOW_STOCK_DEFAULT_THRESHOLD),
-                'shopee_stock': int(f.get('shopee_stock') or 0),
-                'lazada_stock': int(f.get('lazada_stock') or 0),
-            }
-        except ValueError as e:
-            flash(f'ข้อมูลไม่ถูกต้อง: {e}', 'danger')
-            return render_template('products/form.html', product=f, action='new')
-
-        if models.get_product_by_sku(data['sku']):
-            flash(f'SKU {data["sku"]} มีในระบบแล้ว', 'danger')
-            return render_template('products/form.html', product=f, action='new')
-
-        pid = models.create_product(data)
-        locations = request.form.getlist('floor_no')
-        models.save_product_locations(pid, locations)
-        flash('เพิ่มสินค้าเรียบร้อย', 'success')
-        return redirect(url_for('product_detail', product_id=pid))
-
-    return render_template('products/form.html', product={}, action='new', locations=[])
-
-
-@app.route('/products/<int:product_id>')
-def product_detail(product_id):
-    product = models.get_product(product_id)
-    if not product:
-        flash('ไม่พบสินค้า', 'danger')
-        return redirect(url_for('product_list'))
-    promotions = models.get_promotions(product_id)
-    active_promo = models.get_active_promotion(product_id)
-    sell_price = models.effective_price(product)
-    txn_page = int(request.args.get('txn_page', 1))
-    per_page = 20
-    txns, txn_total = models.get_transactions(product_id=product_id, page=txn_page, per_page=per_page)
-    txn_pages = (txn_total + per_page - 1) // per_page
-    locations = models.get_product_locations(product_id)
-    bsn_pricing = models.get_product_pricing_summary(product_id)
-    return render_template('products/detail.html',
-                           product=product,
-                           promotions=promotions,
-                           active_promo=active_promo,
-                           sell_price=sell_price,
-                           txns=txns,
-                           txn_page=txn_page,
-                           txn_pages=txn_pages,
-                           txn_total=txn_total,
-                           locations=locations,
-                           bsn_pricing=bsn_pricing)
-
-
-@app.route('/products/<int:product_id>/cost-history')
-def product_cost_history(product_id):
-    if session.get('role') not in ('admin', 'manager'):
-        abort(403)
-    history = models.get_cost_history(product_id)
-    current_wacc = history[-1]['wacc_after'] if history else 0.0
-    return jsonify({'wacc': current_wacc, 'history': history})
-
-
-@app.route('/products/<int:product_id>/pricing')
-def product_pricing(product_id):
-    product = models.get_product(product_id)
-    if not product:
-        abort(404)
-    pricing = models.get_product_pricing(product_id)
-    return render_template('products/pricing.html', product=product, pricing=pricing)
-
-
-@app.route('/products/<int:product_id>/edit', methods=['GET', 'POST'])
-def product_edit(product_id):
-    product = models.get_product(product_id)
-    if not product:
-        flash('ไม่พบสินค้า', 'danger')
-        return redirect(url_for('product_list'))
-
-    if request.method == 'POST':
-        f = request.form
-        try:
-            data = {
-                'sku': int(f['sku']),
-                'product_name': f['product_name'].strip(),
-                'units_per_carton': int(f['units_per_carton']) if f.get('units_per_carton') else None,
-                'units_per_box': int(f['units_per_box']) if f.get('units_per_box') else None,
-                'unit_type': f.get('unit_type', 'ตัว').strip() or 'ตัว',
-                'hard_to_sell': 1 if f.get('hard_to_sell') else 0,
-                'cost_price': float(f.get('cost_price') or 0),
-                'base_sell_price': float(f.get('base_sell_price') or 0),
-                'low_stock_threshold': int(f.get('low_stock_threshold') or config.LOW_STOCK_DEFAULT_THRESHOLD),
-                'shopee_stock': int(f.get('shopee_stock') or 0),
-                'lazada_stock': int(f.get('lazada_stock') or 0),
-            }
-        except ValueError as e:
-            flash(f'ข้อมูลไม่ถูกต้อง: {e}', 'danger')
-            return render_template('products/form.html', product=f, action='edit', product_id=product_id)
-
-        existing = models.get_product_by_sku(data['sku'])
-        if existing and existing['id'] != product_id:
-            flash(f'SKU {data["sku"]} ถูกใช้งานโดยสินค้าอื่น', 'danger')
-            return render_template('products/form.html', product=f, action='edit', product_id=product_id)
-
-        models.update_product(product_id, data)
-        locations = request.form.getlist('floor_no')
-        models.save_product_locations(product_id, locations)
-        flash('แก้ไขสินค้าเรียบร้อย', 'success')
-        return redirect(url_for('product_detail', product_id=product_id))
-
-    locations = models.get_product_locations(product_id)
-    return render_template('products/form.html', product=product, action='edit', product_id=product_id, locations=locations)
-
-
-@app.route('/products/<int:product_id>/location', methods=['POST'])
-def product_location_save(product_id):
-    if not models.get_product(product_id):
-        abort(404)
-    locations = request.form.getlist('floor_no')
-    models.save_product_locations(product_id, locations)
-    flash('อัปเดตสถานที่เก็บสินค้าเรียบร้อย', 'success')
-    return redirect(url_for('product_detail', product_id=product_id))
-
-
-@app.route('/products/<int:product_id>/online-stock', methods=['POST'])
-def product_online_stock(product_id):
-    platform = request.form.get('platform')
-    try:
-        qty = float(request.form.get('quantity', 0))
-    except ValueError:
-        qty = 0
-    conn = get_connection()
-    if platform == 'shopee':
-        conn.execute('UPDATE products SET shopee_stock=? WHERE id=?', (qty, product_id))
-    elif platform == 'lazada':
-        conn.execute('UPDATE products SET lazada_stock=? WHERE id=?', (qty, product_id))
-    conn.commit()
-    conn.close()
-    flash(f'อัปเดตสต็อก {"Shopee" if platform=="shopee" else "Lazada"} เรียบร้อย', 'success')
-    return redirect(url_for('product_detail', product_id=product_id))
-
-
-@app.route('/products/<int:product_id>/deactivate', methods=['POST'])
-def product_deactivate(product_id):
-    models.deactivate_product(product_id)
-    flash('ปิดใช้งานสินค้าเรียบร้อย', 'success')
-    return redirect(url_for('product_list'))
 
 
 # ── Stock In / Out ────────────────────────────────────────────────────────────
@@ -481,7 +307,7 @@ def stock_in(product_id):
     product = models.get_product(product_id)
     if not product:
         flash('ไม่พบสินค้า', 'danger')
-        return redirect(url_for('product_list'))
+        return redirect(url_for('products.product_list'))
 
     if request.method == 'POST':
         f = request.form
@@ -500,7 +326,7 @@ def stock_in(product_id):
                                reference_no=f.get('reference_no'),
                                note=f.get('note'))
         flash(f'รับสินค้าเข้า {base_qty} {product["unit_type"]} เรียบร้อย', 'success')
-        return redirect(url_for('product_detail', product_id=product_id))
+        return redirect(url_for('products.product_detail', product_id=product_id))
 
     return render_template('transactions/stock_form.html', product=product, txn_type='IN')
 
@@ -510,7 +336,7 @@ def stock_out(product_id):
     product = models.get_product(product_id)
     if not product:
         flash('ไม่พบสินค้า', 'danger')
-        return redirect(url_for('product_list'))
+        return redirect(url_for('products.product_list'))
 
     if request.method == 'POST':
         f = request.form
@@ -535,7 +361,7 @@ def stock_out(product_id):
                                reference_no=f.get('reference_no'),
                                note=f.get('note'))
         flash(f'จ่ายสินค้าออก {base_qty} {product["unit_type"]} เรียบร้อย', 'success')
-        return redirect(url_for('product_detail', product_id=product_id))
+        return redirect(url_for('products.product_detail', product_id=product_id))
 
     return render_template('transactions/stock_form.html', product=product, txn_type='OUT')
 
@@ -545,7 +371,7 @@ def stock_adjust(product_id):
     product = models.get_product(product_id)
     if not product:
         flash('ไม่พบสินค้า', 'danger')
-        return redirect(url_for('product_list'))
+        return redirect(url_for('products.product_list'))
 
     if request.method == 'POST':
         f = request.form
@@ -566,11 +392,11 @@ def stock_adjust(product_id):
         diff = new_qty - current
         if diff == 0:
             flash('จำนวนเท่าเดิม ไม่มีการเปลี่ยนแปลง', 'info')
-            return redirect(url_for('product_detail', product_id=product_id))
+            return redirect(url_for('products.product_detail', product_id=product_id))
 
         models.add_transaction(product_id, 'ADJUST', diff, 'unit', note=note)
         flash(f'ปรับยอดสต็อกเป็น {new_qty} {product["unit_type"]} เรียบร้อย', 'success')
-        return redirect(url_for('product_detail', product_id=product_id))
+        return redirect(url_for('products.product_detail', product_id=product_id))
 
     return render_template('transactions/adjust_form.html', product=product)
 
@@ -597,132 +423,7 @@ def transaction_history():
                            date_from=date_from, date_to=date_to)
 
 
-# ── Promotions ────────────────────────────────────────────────────────────────
-
-@app.route('/products/<int:product_id>/promotions/new', methods=['GET', 'POST'])
-def promotion_new(product_id):
-    product = models.get_product(product_id)
-    if not product:
-        flash('ไม่พบสินค้า', 'danger')
-        return redirect(url_for('product_list'))
-
-    if request.method == 'POST':
-        f = request.form
-        try:
-            data = {
-                'product_id': product_id,
-                'promo_name': f['promo_name'].strip(),
-                'promo_type': f['promo_type'],
-                'discount_value': float(f['discount_value']),
-                'date_start': f.get('date_start') or None,
-                'date_end': f.get('date_end') or None,
-            }
-        except ValueError as e:
-            flash(f'ข้อมูลไม่ถูกต้อง: {e}', 'danger')
-            return render_template('promotions/form.html', product=product)
-
-        if data['promo_type'] == 'percent' and not (0 < data['discount_value'] <= 100):
-            flash('ส่วนลด % ต้องอยู่ระหว่าง 1–100', 'danger')
-            return render_template('promotions/form.html', product=product)
-
-        models.create_promotion(data)
-        flash('เพิ่มโปรโมชันเรียบร้อย', 'success')
-        return redirect(url_for('product_detail', product_id=product_id))
-
-    return render_template('promotions/form.html', product=product)
-
-
-@app.route('/promotions/<int:promo_id>/deactivate', methods=['POST'])
-def promotion_deactivate(promo_id):
-    from database import get_connection
-    conn = get_connection()
-    row = conn.execute("SELECT product_id FROM promotions WHERE id = ?", (promo_id,)).fetchone()
-    conn.close()
-    product_id = row['product_id'] if row else None
-    models.deactivate_promotion(promo_id)
-    flash('ยกเลิกโปรโมชันเรียบร้อย', 'success')
-    return redirect(url_for('product_detail', product_id=product_id) if product_id else url_for('product_list'))
-
-
-# ── CSV Import ────────────────────────────────────────────────────────────────
-
-def parse_csv_content(text: str) -> list:
-    reader = csv.DictReader(io.StringIO(text))
-    rows = []
-    for r in reader:
-        try:
-            sku = int(str(r.get('SKU', '')).strip())
-        except ValueError:
-            continue
-        name = r.get('Product_Name', '').strip()
-        if not name:
-            continue
-
-        def parse_int(v):
-            v = str(v).strip()
-            return int(v) if v else None
-
-        rows.append({
-            'sku': sku,
-            'product_name': name,
-            'units_per_carton': parse_int(r.get('บรรจุ/ลัง', '')),
-            'units_per_box': parse_int(r.get('บรรจุ/กล่อง', '')),
-            'unit_type': r.get('หน่วย', 'ตัว').strip() or 'ตัว',
-            'hard_to_sell': 1 if str(r.get('ขายยาก', '')).strip().upper() == 'TRUE' else 0,
-        })
-    return rows
-
-
-@app.route('/import', methods=['GET', 'POST'])
-def csv_import():
-    if request.method == 'POST':
-        if 'csv_file' not in request.files:
-            flash('กรุณาเลือกไฟล์', 'danger')
-            return redirect(url_for('csv_import'))
-
-        f = request.files['csv_file']
-        if not f.filename.endswith('.csv'):
-            flash('รองรับเฉพาะไฟล์ .csv', 'danger')
-            return redirect(url_for('csv_import'))
-
-        content = f.read().decode('utf-8-sig')
-        rows = parse_csv_content(content)
-        if not rows:
-            flash('ไม่พบข้อมูลในไฟล์', 'warning')
-            return redirect(url_for('csv_import'))
-
-        # Store in session for confirmation step
-        session['import_rows'] = rows
-        session['import_filename'] = f.filename
-        return render_template('import.html', preview=rows[:20],
-                               total=len(rows), step='confirm',
-                               filename=f.filename)
-
-    return render_template('import.html', step='upload')
-
-
-@app.route('/import/confirm', methods=['POST'])
-def csv_import_confirm():
-    rows = session.pop('import_rows', None)
-    filename = session.pop('import_filename', 'unknown.csv')
-    if not rows:
-        flash('หมดเวลา กรุณาอัปโหลดใหม่', 'warning')
-        return redirect(url_for('csv_import'))
-
-    overwrite = request.form.get('overwrite') == '1'
-    imported, skipped = models.bulk_import_products(rows, overwrite=overwrite)
-
-    from database import get_connection
-    conn = get_connection()
-    conn.execute("""
-        INSERT INTO import_log (filename, rows_imported, rows_skipped, notes)
-        VALUES (?, ?, ?, ?)
-    """, (filename, imported, skipped, f'overwrite={overwrite}'))
-    conn.commit()
-    conn.close()
-
-    flash(f'นำเข้าสำเร็จ {imported} รายการ, ข้าม {skipped} รายการ', 'success')
-    return redirect(url_for('product_list'))
+# ── Promotions and CSV Import — moved to blueprints/products.py ───────────────
 
 
 # ── Weekly Import (ขาย / ซื้อ) ───────────────────────────────────────────────
@@ -911,17 +612,6 @@ def trade_dashboard():
     date_to   = request.args.get('date_to')   or None
     stats = models.get_trade_dashboard(date_from, date_to)
     return render_template('trade_dashboard.html', stats=stats)
-
-
-@app.route('/products/<int:product_id>/trade')
-def product_trade_summary(product_id):
-    date_from = request.args.get('date_from') or None
-    date_to   = request.args.get('date_to')   or None
-    data = models.get_product_trade_summary(product_id, date_from, date_to)
-    if not data['product']:
-        flash('ไม่พบสินค้า', 'danger')
-        return redirect(url_for('trade_dashboard'))
-    return render_template('products/trade_summary.html', data=data)
 
 
 @app.route('/customers')
@@ -1174,6 +864,27 @@ def ecommerce():
     page     = int(request.args.get('page', 1))
     per_page = app.config['ITEMS_PER_PAGE']
 
+    listing_summary = models.get_ecommerce_listing_summary()
+
+    if tab == 'mapping':
+        mapped_filter = request.args.get('mapped')
+        mapped = True if mapped_filter == '1' else (False if mapped_filter == '0' else None)
+        platform_filter = request.args.get('platform')
+        rows, total = models.get_ecommerce_listings(
+            platform=platform_filter or None,
+            search=search or None,
+            mapped=mapped,
+            page=page,
+            per_page=per_page,
+        )
+        pages   = max(1, (total + per_page - 1) // per_page)
+        summary = models.get_platform_summary()
+        return render_template('ecommerce.html',
+                               tab=tab, rows=rows, total=total,
+                               search=search, page=page, pages=pages,
+                               summary=summary, listing_summary=listing_summary,
+                               mapped_filter=mapped_filter, platform_filter=platform_filter or '')
+
     platform = tab if tab in ('shopee', 'lazada') else 'shopee'
     rows, total = models.get_platform_skus(platform, search or None, page, per_page)
     pages   = max(1, (total + per_page - 1) // per_page)
@@ -1182,7 +893,8 @@ def ecommerce():
     return render_template('ecommerce.html',
                            tab=tab, rows=rows, total=total,
                            search=search, page=page, pages=pages,
-                           summary=summary)
+                           summary=summary, listing_summary=listing_summary,
+                           mapped_filter=None, platform_filter='')
 
 
 @app.route('/ecommerce/import', methods=['POST'])
@@ -1312,6 +1024,89 @@ def ecommerce_sku_edit(sku_id):
 
 
 
+# ── Ecommerce Listing Mapping ─────────────────────────────────────────────────
+
+@app.route('/ecommerce/listings/import', methods=['POST'])
+def ecommerce_listings_import():
+    platform = request.form.get('platform', '').lower()
+    if platform not in ('shopee', 'lazada'):
+        flash('ระบุ platform ไม่ถูกต้อง', 'danger')
+        return redirect(url_for('ecommerce', tab='mapping'))
+
+    files = request.files.getlist('order_files')
+    if not files or all(not f.filename for f in files):
+        flash('กรุณาเลือกไฟล์', 'danger')
+        return redirect(url_for('ecommerce', tab='mapping'))
+
+    total_added = total_skipped = 0
+    errors = []
+    for f in files:
+        if not f.filename.endswith('.xlsx'):
+            errors.append(f'{f.filename}: ต้องเป็นไฟล์ .xlsx')
+            continue
+        try:
+            file_bytes = io.BytesIO(f.read())
+            if platform == 'shopee':
+                records = parse_shopee_orders(file_bytes)
+            else:
+                records = parse_lazada_orders(file_bytes)
+            added, skipped = models.import_ecommerce_listings(records)
+            total_added   += added
+            total_skipped += skipped
+        except Exception as e:
+            errors.append(f'{f.filename}: {e}')
+
+    if errors:
+        flash(' | '.join(errors), 'danger')
+    if total_added or total_skipped:
+        flash(f'นำเข้า {platform.capitalize()} สำเร็จ: เพิ่มใหม่ {total_added} รายการ, ซ้ำข้าม {total_skipped} รายการ', 'success')
+    return redirect(url_for('ecommerce', tab='mapping'))
+
+
+@app.route('/ecommerce/listings/mapping-export')
+def ecommerce_listings_mapping_export():
+    unmatched_only = request.args.get('unmatched') == '1'
+    rows = models.get_listing_mapping_data(unmatched_only=unmatched_only)
+    if not rows:
+        flash('ยังไม่มีข้อมูล listing ในระบบ', 'warning')
+        return redirect(url_for('ecommerce', tab='mapping'))
+
+    from flask import send_file
+    import datetime
+    suggestions = models.suggest_listing_mapping()
+    buf = export_listing_mapping(rows, suggestions=suggestions, unmatched_only=False)
+    suffix = '_unmatched' if unmatched_only else ''
+    fname  = f'ecommerce_listing_mapping{suffix}_{datetime.date.today().strftime("%Y%m%d")}.xlsx'
+
+    exports_dir = os.path.join(os.path.dirname(config.BASE_DIR), 'data', 'exports')
+    os.makedirs(exports_dir, exist_ok=True)
+    with open(os.path.join(exports_dir, fname), 'wb') as fh:
+        fh.write(buf.getvalue())
+    buf.seek(0)
+
+    return send_file(buf,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                     as_attachment=True, download_name=fname)
+
+
+@app.route('/ecommerce/listings/mapping-import', methods=['POST'])
+def ecommerce_listings_mapping_import():
+    f = request.files.get('listing_mapping_file')
+    if not f or not f.filename.endswith('.xlsx'):
+        flash('กรุณาเลือกไฟล์ .xlsx', 'danger')
+        return redirect(url_for('ecommerce', tab='mapping'))
+    try:
+        file_bytes = io.BytesIO(f.read())
+        records = parse_listing_mapping(file_bytes)
+        updated, not_found = models.apply_listing_mapping(records)
+        flash(f'Mapping สำเร็จ {updated} รายการ'
+              + (f' | ไม่พบ SKU ในระบบ {not_found} รายการ' if not_found else ''),
+              'success' if not_found == 0 else 'warning')
+    except Exception as e:
+        flash(f'เกิดข้อผิดพลาด: {e}', 'danger')
+    return redirect(url_for('ecommerce', tab='mapping'))
+
+
 # ── Product Conversions (สูตรแปลงสินค้า) ─────────────────────────────────────
 
 @app.route('/conversions')
@@ -1394,9 +1189,8 @@ def conversion_run(formula_id):
     if not formula or not formula['is_active']:
         abort(404)
     if request.method == 'POST':
-        if session.get('role') not in ('admin', 'manager'):
-            flash('ต้องใช้บัญชี Admin หรือ Manager เท่านั้น', 'danger')
-            return redirect(url_for('conversion_list'))
+        if not session.get('role'):
+            abort(403)
         try:
             multiplier   = max(1, int(request.form.get('multiplier', 1)))
         except (ValueError, TypeError):
@@ -1414,7 +1208,7 @@ def conversion_run(formula_id):
 
 @app.route('/conversions/<int:formula_id>/delete', methods=['POST'])
 def conversion_delete(formula_id):
-    if session.get('role') not in ('admin', 'manager'):
+    if not session.get('role'):
         abort(403)
     models.delete_conversion_formula(formula_id)
     flash('ลบสูตรเรียบร้อยแล้ว', 'success')
@@ -1559,6 +1353,89 @@ def customer_geojson():
                                               'address','phone','salesperson','credit_days')}
         })
     return jsonify({'type': 'FeatureCollection', 'features': features})
+
+
+# ── Labels (Q3 — print price tag / shelf label) ──────────────────────────────
+
+@app.route('/labels')
+def labels_view():
+    return render_template('labels/index.html')
+
+
+@app.route('/api/products/search')
+def api_products_search():
+    q = (request.args.get('q') or '').strip()
+    limit = min(int(request.args.get('limit', 20)), 50)
+    if not q:
+        return jsonify({'items': []})
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT p.id, p.sku, p.product_name, p.base_sell_price, p.unit_type,
+               (SELECT barcode FROM product_barcodes pb
+                  WHERE pb.product_id = p.id
+                  ORDER BY pb.is_primary DESC, pb.id ASC LIMIT 1) AS barcode
+          FROM products p
+         WHERE p.is_active = 1
+           AND (p.product_name LIKE :q
+                OR CAST(p.sku AS TEXT) LIKE :q
+                OR EXISTS (SELECT 1 FROM product_barcodes pb
+                            WHERE pb.product_id = p.id AND pb.barcode LIKE :q))
+         ORDER BY
+             CASE WHEN CAST(p.sku AS TEXT) = :exact THEN 0
+                  WHEN p.product_name LIKE :starts THEN 1
+                  ELSE 2 END,
+             p.product_name
+         LIMIT :lim
+        """,
+        {'q': f'%{q}%', 'starts': f'{q}%', 'exact': q, 'lim': limit}
+    ).fetchall()
+    conn.close()
+    items = [{
+        'id':         r['id'],
+        'sku':        r['sku'],
+        'name':       r['product_name'],
+        'price':      r['base_sell_price'],
+        'unit':       r['unit_type'],
+        'barcode':    r['barcode'] or '',
+    } for r in rows]
+    return jsonify({'items': items})
+
+
+@app.route('/api/products/<int:product_id>/barcodes', methods=['GET', 'POST', 'DELETE'])
+def api_product_barcodes(product_id):
+    if not session.get('role'):
+        abort(403)
+    conn = get_connection()
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        barcode = (data.get('barcode') or '').strip()
+        if not barcode:
+            conn.close()
+            return jsonify({'error': 'barcode required'}), 400
+        try:
+            conn.execute(
+                "INSERT INTO product_barcodes (product_id, barcode, source) "
+                "VALUES (?, ?, 'manual')",
+                (product_id, barcode)
+            )
+            conn.commit()
+        except Exception as e:
+            conn.close()
+            return jsonify({'error': str(e)}), 400
+    elif request.method == 'DELETE':
+        bc_id = request.args.get('id')
+        if bc_id:
+            conn.execute("DELETE FROM product_barcodes WHERE id=? AND product_id=?",
+                         (bc_id, product_id))
+            conn.commit()
+    rows = conn.execute(
+        "SELECT id, barcode, is_primary, source FROM product_barcodes "
+        "WHERE product_id=? ORDER BY is_primary DESC, id ASC",
+        (product_id,)
+    ).fetchall()
+    conn.close()
+    return jsonify({'items': [dict(r) for r in rows]})
 
 
 if __name__ == '__main__':

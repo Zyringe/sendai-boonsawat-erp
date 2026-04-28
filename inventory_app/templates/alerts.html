@@ -35,7 +35,7 @@
         <tr>
           <td><span class="badge badge-gray font-mono">{{ a.sku }}</span></td>
           <td>
-            <a href="{{ url_for('product_detail', product_id=a.id) }}"
+            <a href="{{ url_for('products.product_detail', product_id=a.id) }}"
                class="text-decoration-none fw-500 text-main">{{ a.product_name }}</a>
           </td>
           <td class="text-end fw-600">{{ a.quantity | fmt_qty }} <span class="text-subtle small">{{ a.unit_type }}</span></td>
@@ -45,7 +45,7 @@
           <td class="text-end fw-700 text-danger">+{{ a.excess | fmt_qty }}</td>
           <td>
             {% if is_admin %}
-            <a href="{{ url_for('product_edit', product_id=a.id) }}"
+            <a href="{{ url_for('products.product_edit', product_id=a.id) }}"
                class="btn btn-xs" style="background:#f1f5f9;color:#475569;border:none" title="แก้ไข">
               <i class="bi bi-pencil"></i>
             </a>

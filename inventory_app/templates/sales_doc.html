@@ -70,7 +70,7 @@
           <td class="font-mono small text-subtle">{{ r.bsn_code }}</td>
           <td>
             {% if r.product_id %}
-              <a href="{{ url_for('product_detail', product_id=r.product_id) }}"
+              <a href="{{ url_for('products.product_detail', product_id=r.product_id) }}"
                  class="text-decoration-none text-main">{{ r.display_name }}</a>
               <div class="text-subtle" style="font-size:0.75rem">SKU {{ r.sku }}</div>
             {% else %}

@@ -15,6 +15,7 @@ Lazada Price/Stock Export format:
 
 import io
 import json
+import re
 import warnings
 
 # ── Patch openpyxl bug (Shopee xlsx has invalid activePane value) ─────────────
@@ -444,7 +445,6 @@ def parse_mapping(file_obj):
     Returns list of dicts: {platform_sku_id, internal_sku, qty_per_sale}
     """
     df = pd.read_excel(file_obj, dtype=str)
-    # Header row is MAPPING_COLS
     results = []
     for _, row in df.iterrows():
         raw = {k: (None if pd.isna(v) else str(v).strip()) for k, v in row.items()}
@@ -455,5 +455,227 @@ def parse_mapping(file_obj):
             'platform_sku_id': sku_id,
             'internal_sku':    raw.get('internal_sku') or None,
             'qty_per_sale':    _to_float(raw.get('qty_per_sale')) or 1.0,
+        })
+    return results
+
+
+# ── Order File Parsers (for Listing Mapping) ─────────────────────────────────
+
+def parse_shopee_orders(file_obj):
+    """
+    Parse Shopee All-Orders xlsx (exported from My Orders).
+    Extracts unique (item_name, variation) combinations.
+    Returns list of dicts for ecommerce_listings.
+    """
+    import hashlib
+    df = pd.read_excel(file_obj, dtype=str)
+    if 'ชื่อสินค้า' not in df.columns:
+        raise ValueError('ไม่พบคอลัมน์ ชื่อสินค้า — ตรวจสอบว่าใช้ไฟล์คำสั่งซื้อ Shopee')
+
+    df = df.dropna(subset=['ชื่อสินค้า'])
+    seen = {}
+    for _, row in df.iterrows():
+        name = str(row['ชื่อสินค้า']).strip()
+        var  = str(row.get('ชื่อตัวเลือก', '') or '').strip() or None
+        key  = hashlib.sha256(f"shopee|{name}|{var or ''}".encode()).hexdigest()[:16]
+        if key in seen:
+            continue
+        price      = _to_float(row.get('ราคาขาย'))
+        seller_sku = str(row.get('เลขอ้างอิง SKU (SKU Reference No.)', '') or '').strip() or None
+        seen[key] = {
+            'platform':     'shopee',
+            'item_name':    name,
+            'variation':    var,
+            'seller_sku':   seller_sku,
+            'listing_key':  key,
+            'sample_price': price,
+        }
+    return list(seen.values())
+
+
+_LAZADA_ATTR_PREFIX_RE = re.compile(
+    r'^(สี|โทนสี|Color Family|Color family|Color|Variation\d*|Item|ขนาด|จำนวน|'
+    r'Power Tools Battery Voltage|สินค้า)\s*:\s*',
+    re.IGNORECASE,
+)
+
+
+def parse_lazada_orders(file_obj):
+    """
+    Parse Lazada Orders xlsx (exported from Seller Center).
+    Extracts unique (itemName, variation) combinations.
+    Returns list of dicts for ecommerce_listings.
+
+    Lazada has changed the variation attribute label over time
+    (โทนสี: → สี: → Color Family: → Color family:). We strip these prefixes
+    before hashing so the same option doesn't create duplicate listings
+    across years.
+    """
+    import hashlib
+    df = pd.read_excel(file_obj, dtype=str)
+    if 'itemName' not in df.columns:
+        raise ValueError('ไม่พบคอลัมน์ itemName — ตรวจสอบว่าใช้ไฟล์คำสั่งซื้อ Lazada')
+
+    df = df.dropna(subset=['itemName'])
+    seen = {}
+    for _, row in df.iterrows():
+        name = str(row['itemName']).strip()
+        var  = str(row.get('variation', '') or '').strip() or None
+        if var:
+            var = _LAZADA_ATTR_PREFIX_RE.sub('', var).strip() or None
+        key  = hashlib.sha256(f"lazada|{name}|{var or ''}".encode()).hexdigest()[:16]
+        if key in seen:
+            continue
+        price      = _to_float(row.get('unitPrice'))
+        seller_sku = str(row.get('sellerSku', '') or '').strip() or None
+        seen[key] = {
+            'platform':     'lazada',
+            'item_name':    name,
+            'variation':    var,
+            'seller_sku':   seller_sku,
+            'listing_key':  key,
+            'sample_price': price,
+        }
+    return list(seen.values())
+
+
+# ── Listing Mapping Export/Import ─────────────────────────────────────────────
+
+LISTING_MAPPING_COLS = [
+    'listing_id', 'platform', 'ชื่อสินค้า (platform)', 'ตัวเลือก (platform)',
+    'seller_sku', 'ราคาตัวอย่าง (฿)',
+    'internal_sku', 'ชื่อสินค้า (ERP) — อ่านอย่างเดียว', 'confidence_%',
+    'qty_per_sale', 'คำอธิบาย qty_per_sale',
+]
+
+
+def export_listing_mapping(rows, suggestions=None, unmatched_only=False):
+    """
+    Generate mapping xlsx for user to fill in internal_sku.
+    rows: list of ecommerce_listings rows (dicts or sqlite3.Row)
+    suggestions: dict {listing_id -> {suggested_sku, suggested_name, confidence}}
+    unmatched_only: True → only export rows without product_id
+    """
+    import openpyxl
+    from openpyxl.styles import PatternFill, Font, Alignment
+    from openpyxl.utils import get_column_letter
+
+    suggestions = suggestions or {}
+    rows = [dict(r) for r in rows]
+    if unmatched_only:
+        rows = [r for r in rows if not r.get('product_id')]
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Mapping'
+
+    fill_info = PatternFill('solid', start_color='FFF3CD')
+    fill_edit = PatternFill('solid', start_color='D4EDDA')
+    fill_ai   = PatternFill('solid', start_color='D1ECF1')
+    hdr_font  = Font(bold=True, size=9)
+
+    for ci, col in enumerate(LISTING_MAPPING_COLS, 1):
+        cell = ws.cell(row=1, column=ci, value=col)
+        cell.font = hdr_font
+        cell.alignment = Alignment(horizontal='center', wrap_text=True)
+        if col in ('internal_sku',):
+            cell.fill = fill_edit
+        elif 'ERP' in col or 'confidence' in col:
+            cell.fill = fill_ai
+        else:
+            cell.fill = fill_info
+    ws.row_dimensions[1].height = 36
+
+    fill_mapped = PatternFill('solid', start_color='E8F5E9')
+    fill_hi     = PatternFill('solid', start_color='F0FFF4')
+    fill_mid    = PatternFill('solid', start_color='FFFDE7')
+    fill_lo     = PatternFill('solid', start_color='FFF3E0')
+    fill_vlo    = PatternFill('solid', start_color='FFF5F5')
+
+    for ri, r in enumerate(rows, 2):
+        sg   = suggestions.get(r['id'], {})
+        conf = sg.get('confidence', 0)
+
+        int_sku  = r.get('sku') or (sg.get('suggested_sku', '') if sg else '')
+        int_name = r.get('product_name') or (sg.get('suggested_name', '') if sg else '')
+        conf_val = 100 if r.get('product_id') else (sg.get('confidence', '') if sg else '')
+
+        if r.get('product_id'):
+            row_fill = fill_mapped
+        elif conf >= 80:
+            row_fill = fill_hi
+        elif conf >= 60:
+            row_fill = fill_mid
+        elif conf >= 40:
+            row_fill = fill_lo
+        else:
+            row_fill = fill_vlo
+
+        qty_per_sale = r.get('qty_per_sale') or 1
+
+        vals = [
+            r['id'], r['platform'], r['item_name'], r.get('variation') or '',
+            r.get('seller_sku') or '', r.get('sample_price'),
+            int_sku, int_name, conf_val,
+            qty_per_sale,
+            'จำนวนหน่วยในระบบที่ลดเมื่อขาย 1 ชิ้น เช่น ลูกรีเวท 25 ดอก/ถุง → ใส่ 25',
+        ]
+        for ci, val in enumerate(vals, 1):
+            cell = ws.cell(row=ri, column=ci, value=val)
+            cell.font = Font(size=9)
+            col_name = LISTING_MAPPING_COLS[ci - 1]
+            if col_name in ('internal_sku', 'qty_per_sale'):
+                cell.fill = fill_edit
+            elif 'ERP' in col_name:
+                cell.fill = PatternFill('solid', start_color='EBF5FB')
+                cell.font = Font(size=9, italic=True, color='2471A3')
+            elif col_name == 'confidence_%':
+                if conf_val == '' or conf_val == 0:
+                    cell.fill = PatternFill('solid', start_color='F5F5F5')
+                elif conf_val == 100:
+                    cell.fill = PatternFill('solid', start_color='C8E6C9')
+                    cell.font = Font(size=9, bold=True, color='1B5E20')
+                elif conf_val >= 80:
+                    cell.fill = PatternFill('solid', start_color='DCEDC8')
+                    cell.font = Font(size=9, bold=True, color='33691E')
+                elif conf_val >= 60:
+                    cell.fill = PatternFill('solid', start_color='FFF9C4')
+                    cell.font = Font(size=9, bold=True, color='F57F17')
+                else:
+                    cell.fill = PatternFill('solid', start_color='FFCCBC')
+                    cell.font = Font(size=9, bold=True, color='BF360C')
+            elif col_name == 'คำอธิบาย qty_per_sale':
+                cell.fill = PatternFill('solid', start_color='F8F9FA')
+                cell.font = Font(size=8, italic=True, color='999999')
+            else:
+                cell.fill = row_fill
+
+    widths = [10, 9, 50, 28, 16, 14, 13, 40, 12, 12, 55]
+    for ci, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(ci)].width = w
+    ws.freeze_panes = 'A2'
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+def parse_listing_mapping(file_obj):
+    """
+    Parse filled listing mapping xlsx.
+    Returns list of dicts: {listing_id, internal_sku, qty_per_sale}
+    """
+    df = pd.read_excel(file_obj, dtype=str)
+    results = []
+    for _, row in df.iterrows():
+        raw = {k: (None if pd.isna(v) else str(v).strip()) for k, v in row.items()}
+        lid = _to_int(raw.get('listing_id'))
+        if not lid:
+            continue
+        results.append({
+            'listing_id':    lid,
+            'internal_sku':  raw.get('internal_sku') or None,
+            'qty_per_sale':  _to_float(raw.get('qty_per_sale')) or 1.0,
         })
     return results
