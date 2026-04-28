@@ -1351,8 +1351,9 @@ def parse_payment_csv(filepath):
             text = line.strip().strip('"').replace('\xa0', ' ')
             if not text:
                 continue
-            # RE header row
-            m = _re.match(r'^(\d{2}/\d{2}/\d{2})\s+(\*?RE\S+)\s+(.+?)\s{2,}(\w+)\s', text)
+            # RE header row.  Salesperson can be "06" (digits) or "06-L" (with branch
+            # suffix), so allow non-space chars rather than requiring \w+.
+            m = _re.match(r'^(\d{2}/\d{2}/\d{2})\s+(\*?RE\S+)\s+(.+?)\s{2,}(\S+)\s', text)
             if m:
                 if current:
                     records.append(current)
@@ -2625,3 +2626,174 @@ def recalculate_waccs_for_products(product_ids):
         recalculate_product_wacc(pid, conn)
     conn.commit()
     conn.close()
+
+
+# ── Ecommerce Listing Mapping ──────────────────────────────────────────────────
+
+def import_ecommerce_listings(records):
+    """
+    Merge-insert unique listings (INSERT OR IGNORE).
+    Returns (added, skipped).
+    """
+    conn = get_connection()
+    added = skipped = 0
+    for r in records:
+        cur = conn.execute("""
+            INSERT OR IGNORE INTO ecommerce_listings
+            (platform, item_name, variation, seller_sku, listing_key, sample_price)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (r['platform'], r['item_name'], r['variation'],
+              r['seller_sku'], r['listing_key'], r['sample_price']))
+        if cur.rowcount:
+            added += 1
+        else:
+            skipped += 1
+    conn.commit()
+    conn.close()
+    return added, skipped
+
+
+def get_ecommerce_listing_summary():
+    """Return {platform: {total, mapped, unmatched}} for summary cards."""
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT platform,
+               COUNT(*) AS total,
+               COUNT(product_id) AS mapped
+        FROM ecommerce_listings
+        WHERE is_ignored = 0
+        GROUP BY platform
+    """).fetchall()
+    conn.close()
+    result = {}
+    for r in rows:
+        result[r['platform']] = {
+            'total':     r['total'],
+            'mapped':    r['mapped'],
+            'unmatched': r['total'] - r['mapped'],
+        }
+    return result
+
+
+def get_ecommerce_listings(platform=None, search=None, mapped=None, page=1, per_page=50):
+    """Return paginated ecommerce_listings joined with product info."""
+    conditions = ["el.is_ignored = 0"]
+    params = []
+    if platform:
+        conditions.append("el.platform = ?")
+        params.append(platform)
+    if search:
+        conditions.append("(el.item_name LIKE ? OR el.variation LIKE ? OR el.seller_sku LIKE ?)")
+        params += [f'%{search}%'] * 3
+    if mapped is True:
+        conditions.append("el.product_id IS NOT NULL")
+    elif mapped is False:
+        conditions.append("el.product_id IS NULL")
+
+    where = "WHERE " + " AND ".join(conditions) if conditions else ""
+    conn = get_connection()
+    total = conn.execute(
+        f"SELECT COUNT(*) FROM ecommerce_listings el {where}", params
+    ).fetchone()[0]
+    rows = conn.execute(f"""
+        SELECT el.*, p.sku, p.product_name
+        FROM ecommerce_listings el
+        LEFT JOIN products p ON p.id = el.product_id
+        {where}
+        ORDER BY el.platform, el.product_id IS NULL DESC, el.item_name
+        LIMIT ? OFFSET ?
+    """, params + [per_page, (page - 1) * per_page]).fetchall()
+    conn.close()
+    return [dict(r) for r in rows], total
+
+
+def get_listing_mapping_data(unmatched_only=False):
+    """Return all listings for mapping export."""
+    conn = get_connection()
+    cond = "AND el.product_id IS NULL" if unmatched_only else ""
+    rows = conn.execute(f"""
+        SELECT el.*, p.sku, p.product_name
+        FROM ecommerce_listings el
+        LEFT JOIN products p ON p.id = el.product_id
+        WHERE el.is_ignored = 0 {cond}
+        ORDER BY el.platform, el.product_id IS NULL DESC, el.item_name
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def apply_listing_mapping(records):
+    """
+    Apply internal_sku → product_id for ecommerce_listings.
+    records: list of {listing_id, internal_sku}
+    Returns (updated, not_found).
+    """
+    conn = get_connection()
+    updated = not_found = 0
+    for r in records:
+        lid = r.get('listing_id')
+        int_sku = r.get('internal_sku')
+        if not lid or not int_sku:
+            continue
+        product = conn.execute(
+            "SELECT id FROM products WHERE sku = ? AND is_active = 1", (int_sku,)
+        ).fetchone()
+        if not product:
+            not_found += 1
+            continue
+        qty = r.get('qty_per_sale') or 1.0
+        conn.execute(
+            "UPDATE ecommerce_listings SET product_id = ?, qty_per_sale = ? WHERE id = ?",
+            (product['id'], qty, lid)
+        )
+        updated += 1
+    conn.commit()
+    conn.close()
+    return updated, not_found
+
+
+def suggest_listing_mapping():
+    """
+    Fuzzy-match ecommerce_listings to ERP products.
+    Returns dict: {listing_id -> {suggested_sku, suggested_name, confidence}}
+    """
+    import numpy as np
+    from rapidfuzz import fuzz
+    from rapidfuzz.process import cdist
+
+    conn = get_connection()
+    product_list = list(conn.execute(
+        "SELECT id, sku, product_name FROM products WHERE is_active = 1"
+    ).fetchall())
+    listing_list = list(conn.execute(
+        "SELECT id, item_name, variation, seller_sku, product_id FROM ecommerce_listings WHERE is_ignored = 0"
+    ).fetchall())
+    conn.close()
+
+    if not product_list or not listing_list:
+        return {}
+
+    corpus  = [_clean_for_match(p['product_name']) for p in product_list]
+    queries = [
+        _clean_for_match(f"{l['item_name']} {l['variation'] or ''} {l['seller_sku'] or ''}")
+        for l in listing_list
+    ]
+
+    matrix     = cdist(queries, corpus, scorer=fuzz.token_set_ratio, workers=-1)
+    best_idx   = matrix.argmax(axis=1)
+    best_score = matrix.max(axis=1)
+
+    results = {}
+    for i, listing in enumerate(listing_list):
+        lid = listing['id']
+        if listing['product_id']:
+            matched = next((p for p in product_list if p['id'] == listing['product_id']), None)
+            if matched:
+                results[lid] = {'suggested_sku': matched['sku'], 'suggested_name': matched['product_name'], 'confidence': 100}
+            continue
+        score = int(best_score[i])
+        if score < 25:
+            continue
+        product = product_list[best_idx[i]]
+        results[lid] = {'suggested_sku': product['sku'], 'suggested_name': product['product_name'], 'confidence': score}
+    return results

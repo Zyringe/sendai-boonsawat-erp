@@ -33,8 +33,8 @@
   <div class="col-sm-6 col-xl-3">
     <div class="stat-card">
       <div class="d-flex align-items-center gap-3">
-        <div class="stat-card-icon" style="background:#dcfce7">
-          <i class="bi bi-graph-up-arrow" style="color:#16a34a"></i>
+        <div class="stat-card-icon" style="background:#dcf2e0">
+          <i class="bi bi-graph-up-arrow" style="color:#2e7d3a"></i>
         </div>
         <div>
           <div class="stat-card-label">ยอดขายรวม</div>
@@ -43,7 +43,7 @@
       </div>
       <div class="mt-2 text-subtle small">{{ stats.sales.doc_count | fmt_qty }} เอกสาร &middot; {{ stats.sales.total_qty | fmt_qty }} ชิ้น</div>
       <a href="{{ url_for('sales_view') }}" class="btn btn-sm w-100 mt-2"
-         style="background:#dcfce7;color:#16a34a;border:none;font-weight:500">ดูรายละเอียด →</a>
+         style="background:#dcf2e0;color:#2e7d3a;border:none;font-weight:500">ดูรายละเอียด →</a>
     </div>
   </div>
 
@@ -51,7 +51,7 @@
   <div class="col-sm-6 col-xl-3">
     <div class="stat-card">
       <div class="d-flex align-items-center gap-3">
-        <div class="stat-card-icon" style="background:#fef9c3">
+        <div class="stat-card-icon" style="background:#fdf3dd">
           <i class="bi bi-truck" style="color:#b45309"></i>
         </div>
         <div>
@@ -61,7 +61,7 @@
       </div>
       <div class="mt-2 text-subtle small">{{ stats.purchases.doc_count | fmt_qty }} เอกสาร &middot; {{ stats.purchases.total_qty | fmt_qty }} ชิ้น</div>
       <a href="{{ url_for('purchases_view') }}" class="btn btn-sm w-100 mt-2"
-         style="background:#fef9c3;color:#b45309;border:none;font-weight:500">ดูรายละเอียด →</a>
+         style="background:#fdf3dd;color:#b45309;border:none;font-weight:500">ดูรายละเอียด →</a>
     </div>
   </div>
 
@@ -69,13 +69,13 @@
   <div class="col-sm-6 col-xl-3">
     <div class="stat-card">
       <div class="d-flex align-items-center gap-3">
-        <div class="stat-card-icon" style="background:{% if stats.gross_profit >= 0 %}#ede9fe{% else %}#fee2e2{% endif %}">
-          <i class="bi bi-currency-exchange" style="color:{% if stats.gross_profit >= 0 %}#7c3aed{% else %}#ef4444{% endif %}"></i>
+        <div class="stat-card-icon" style="background:{% if stats.gross_profit >= 0 %}#fdf3dd{% else %}#fdecee{% endif %}">
+          <i class="bi bi-currency-exchange" style="color:{% if stats.gross_profit >= 0 %}#8a5d00{% else %}#c41e2a{% endif %}"></i>
         </div>
         <div>
           <div class="stat-card-label">กำไรขั้นต้น</div>
           <div class="stat-card-value {% if stats.gross_profit >= 0 %}text-purple{% else %}text-danger{% endif %}"
-               style="{% if stats.gross_profit >= 0 %}color:#7c3aed{% endif %}">
+               style="{% if stats.gross_profit >= 0 %}color:#8a5d00{% endif %}">
             {{ stats.gross_profit | fmt_price }}
           </div>
         </div>

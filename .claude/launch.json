@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "Flask ERP Server",
-      "runtimeExecutable": "/usr/local/bin/python3",
-      "runtimeArgs": ["/Users/put/Documents/Sendai-Boonsawat/ERP/inventory_app/app.py"],
+      "runtimeExecutable": "/Users/putty/.virtualenvs/erp/bin/python",
+      "runtimeArgs": ["/Users/putty/Documents/Sendai-Boonsawat/ERP/inventory_app/app.py"],
       "port": 5001
     }
   ]

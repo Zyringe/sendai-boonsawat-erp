@@ -1,18 +1,33 @@
-# Sendai-Boonsawat ERP — CLAUDE.md
+# Sendy — Sendai-Boonsawat ERP — CLAUDE.md
+
+> **App name: Sendy** (มาจาก Sendai). คือ ERP หลังบ้านของ BSN/Sendai Trading.
+> เมื่อ user พูดถึง "Sendy", "Sendy app", "เปิด Sendy" → หมายถึง Flask ERP นี้ (folder `inventory_app/`).
+> Folder name `inventory_app/` คงเดิม (internal, ไม่ rename เพื่อหลีกเลี่ยง deployment risk).
 
 ## Dev Server
 ```
-runtimeExecutable: /usr/local/bin/python3
-runtimeArgs: ["/Users/put/Documents/Sendai-Boonsawat/ERP/inventory_app/app.py"]
+runtimeExecutable: /Users/putty/.virtualenvs/erp/bin/python
+runtimeArgs: ["/Users/putty/Documents/Sendai-Boonsawat/ERP/inventory_app/app.py"]
 port: 5001
 ```
-ใช้ `mcp__Claude_Preview__preview_start` → "Flask ERP Server" (config อยู่ใน `.claude/launch.json`)
+
+**หมายเหตุ macOS sandbox**: `mcp__Claude_Preview__preview_start` มักโดน TCC block เพราะอ่าน `~/Documents` ไม่ได้ → start ผ่าน Bash แทน:
+```
+cd inventory_app && /Users/putty/.virtualenvs/erp/bin/python app.py
+```
+venv ต้องอยู่นอก `~/Documents` (เช่น `~/.virtualenvs/erp`) เพื่อหลบ sandbox
+
+## First-time setup (เครื่องใหม่)
+```
+/usr/bin/python3 -m venv ~/.virtualenvs/erp
+~/.virtualenvs/erp/bin/pip install -r inventory_app/requirements.txt
+```
 
 ## Stack
 - **Framework**: Flask 3.x (Python), ไม่มี ORM
 - **Database**: SQLite → `inventory_app/instance/inventory.db`
 - **Encoding**: UTF-8 สำหรับ DB, **cp874** สำหรับไฟล์ BSN CSV
-- **Python**: ต้องใช้ `/usr/local/bin/python3` (ไม่ใช่ system python)
+- **Python**: 3.9 (system `/usr/bin/python3`) ใน venv `~/.virtualenvs/erp`
 
 ## โครงสร้างไฟล์สำคัญ
 ```
@@ -53,6 +68,20 @@ ERP/
 
 ### sales_transactions / purchase_transactions (ข้อมูล BSN)
 `id, batch_id, date_iso, doc_no, product_id, bsn_code, product_name_raw, customer/supplier, customer_code/supplier_code, qty, unit, unit_price, vat_type, discount, total, net, created_at, synced_to_stock(0/1)`
+
+**Column semantics (verified 2026-04-28):**
+- `unit_price` × `qty` × `(1 − line_discount)` = `total` — **line subtotal, pre-VAT, pre-doc-discount**
+- `net` = line's share of doc total **after doc-level discount** (e.g. 2% cash/early-pay).
+- ~96.5% ของแถว: `total == net` (ไม่มี doc-level discount)
+- ~3.5% ของแถว: `net = total × 0.98` (มี doc-level discount 2%)
+- **ทั้ง `total` และ `net` ไม่รวม VAT** — VAT คำนวณนอก row, ดูที่ `vat_type` flag:
+  - `0` = ไม่มี VAT (exempt) — ราคารวมไม่บวก VAT
+  - `1` = VAT แยกนอก (excluded) — ต้องบวก VAT 7% เพิ่มเอง = `net × 1.07`
+  - `2` = VAT รวมใน (included) — `net` รวม VAT แล้ว → pre-VAT = `net / 1.07`
+- **คำแนะนำ for analysis**: ใช้ `net` สำหรับ revenue (after all discounts). คำนวณ VAT-inclusive total per doc โดยใช้ vat_type flag.
+- **Parser fixed 2026-04-28** — `_DISCOUNT_COL` regex ใน `parse_weekly.py` ขยาย char class ให้รองรับ `.` และ `%` ทั้งใน line-discount และ doc-level-discount columns.
+  - **บั๊กที่ fix แล้ว:** (1) line discount แบบ decimal baht (`32.00`) เคยทำให้ column shift ผิด, (2) doc-level discount แบบ `%` (เช่น `2%`) เคย truncate net แค่ตัวเลขก่อน `%`.
+  - **ค่าที่ตกค้างใน DB:** แถวที่ `total != net` (~695 rows ที่นำเข้ามาก่อน fix) net values ยังผิด — re-import source files ใน `data/source/new_source/` หรือ `inventory_app/imports/` จะแก้ historical data ได้.
 
 ### product_code_mapping
 `id, bsn_code, bsn_name, product_id, is_ignored, created_at`

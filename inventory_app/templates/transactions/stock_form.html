@@ -15,7 +15,7 @@
   <div class="col-lg-5">
     <div class="card">
       <div class="card-header" style="
-        {% if txn_type == 'IN' %}background:#dcfce7;color:#15803d{% else %}background:#fee2e2;color:#b91c1c{% endif %}">
+        {% if txn_type == 'IN' %}background:#dcf2e0;color:#2e7d3a{% else %}background:#fdecee;color:#a8181f{% endif %}">
         <i class="bi bi-arrow-{% if txn_type == 'IN' %}down{% else %}up{% endif %}-circle me-2"></i>
         {% if txn_type == 'IN' %}รับสินค้าเข้า{% else %}จ่ายสินค้าออก{% endif %}
       </div>
@@ -68,7 +68,7 @@
             <a href="{{ url_for('products.product_detail', product_id=product.id) }}"
                class="btn btn-outline-secondary flex-fill">ยกเลิก</a>
             <button type="submit" class="btn flex-fill fw-500"
-                    style="{% if txn_type == 'IN' %}background:#22c55e;border-color:#22c55e{% else %}background:#ef4444;border-color:#ef4444{% endif %};color:#fff">
+                    style="{% if txn_type == 'IN' %}background:#2e7d3a;border-color:#2e7d3a{% else %}background:#c41e2a;border-color:#c41e2a{% endif %};color:#fff">
               <i class="bi bi-check-circle me-1"></i>ยืนยัน
             </button>
           </div>
