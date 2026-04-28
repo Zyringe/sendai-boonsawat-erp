@@ -11,7 +11,7 @@
       <div class="card-body">
         <div class="alert alert-info mb-3 small">
           <i class="bi bi-info-circle me-2"></i>
-          ต้องมีคอลัมน์: <code>SKU, Product_Name, บรรจุ/ลัง, บรรจุ/กล่อง, หน่วย, ขายยาก</code>
+          ต้องมีคอลัมน์: <code>SKU, Product_Name, บรรจุ/ลัง, บรรจุ/กล่อง, หน่วย</code>
         </div>
         <form method="post" enctype="multipart/form-data">
           <div class="mb-4">
@@ -38,7 +38,7 @@
       <thead>
         <tr>
           <th>SKU</th><th>ชื่อสินค้า</th><th class="text-center">ลัง</th>
-          <th class="text-center">กล่อง</th><th class="text-center">หน่วย</th><th class="text-center">ขายยาก</th>
+          <th class="text-center">กล่อง</th><th class="text-center">หน่วย</th>
         </tr>
       </thead>
       <tbody>
@@ -49,9 +49,6 @@
           <td class="text-center text-subtle">{{ r.units_per_carton or '–' }}</td>
           <td class="text-center text-subtle">{{ r.units_per_box or '–' }}</td>
           <td class="text-center">{{ r.unit_type }}</td>
-          <td class="text-center">
-            {% if r.hard_to_sell %}<span class="badge badge-warning">ใช่</span>{% else %}–{% endif %}
-          </td>
         </tr>
         {% endfor %}
       </tbody>

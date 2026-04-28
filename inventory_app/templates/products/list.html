@@ -38,11 +38,6 @@
                  id="chkInStock" {% if in_stock %}checked{% endif %}>
           <label class="form-check-label small" for="chkInStock">มีสต็อก &gt; 0</label>
         </div>
-        <div class="form-check mb-0">
-          <input class="form-check-input" type="checkbox" name="hard_to_sell" value="1"
-                 id="chkHard" {% if hard_to_sell %}checked{% endif %}>
-          <label class="form-check-label small" for="chkHard">ขายยาก</label>
-        </div>
         <button type="submit" class="btn btn-primary btn-sm">กรอง</button>
         <a href="{{ url_for('products.product_list') }}" class="btn btn-sm btn-outline-secondary">ล้าง</a>
       </div>
@@ -77,9 +72,6 @@
           <td>
             <a href="{{ url_for('products.product_detail', product_id=p.id) }}"
                class="text-decoration-none fw-500 text-main">{{ p.product_name }}</a>
-            {% if p.hard_to_sell %}
-              <span class="badge badge-warning ms-1">ขายยาก</span>
-            {% endif %}
             {% if p.is_low %}
               <span class="badge badge-danger ms-1">สต็อกต่ำ</span>
             {% endif %}
@@ -95,11 +87,11 @@
           <td class="text-center">
             {% if is_admin %}
             <a href="{{ url_for('stock_in', product_id=p.id) }}"
-               class="btn btn-xs me-1" style="background:#dcfce7;color:#16a34a;border:none" title="รับเข้า">
+               class="btn btn-xs me-1" style="background:#dcf2e0;color:#2e7d3a;border:none" title="รับเข้า">
               <i class="bi bi-arrow-down-circle"></i>
             </a>
             <a href="{{ url_for('stock_out', product_id=p.id) }}"
-               class="btn btn-xs me-1" style="background:#fee2e2;color:#ef4444;border:none" title="จ่ายออก">
+               class="btn btn-xs me-1" style="background:#fdecee;color:#c41e2a;border:none" title="จ่ายออก">
               <i class="bi bi-arrow-up-circle"></i>
             </a>
             <a href="{{ url_for('products.product_edit', product_id=p.id) }}"
@@ -123,7 +115,7 @@
       <ul class="pagination pagination-sm mb-0 justify-content-center flex-wrap">
         {% set ns = namespace(prev=0) %}
         <li class="page-item {% if page == 1 %}disabled{% endif %}">
-          <a class="page-link" href="{{ url_for('products.product_list', page=page-1, q=search, location=location, low_stock=1 if low_stock else '', in_stock=1 if in_stock else '', hard_to_sell=1 if hard_to_sell else '') }}">&laquo;</a>
+          <a class="page-link" href="{{ url_for('products.product_list', page=page-1, q=search, location=location, low_stock=1 if low_stock else '', in_stock=1 if in_stock else '') }}">&laquo;</a>
         </li>
         {% for p in range(1, pages+1) %}
           {% if p == 1 or p == pages or (p >= page-2 and p <= page+2) %}
@@ -131,13 +123,13 @@
             <li class="page-item disabled"><span class="page-link">…</span></li>
             {% endif %}
             <li class="page-item {% if p == page %}active{% endif %}">
-              <a class="page-link" href="{{ url_for('products.product_list', page=p, q=search, location=location, low_stock=1 if low_stock else '', in_stock=1 if in_stock else '', hard_to_sell=1 if hard_to_sell else '') }}">{{ p }}</a>
+              <a class="page-link" href="{{ url_for('products.product_list', page=p, q=search, location=location, low_stock=1 if low_stock else '', in_stock=1 if in_stock else '') }}">{{ p }}</a>
             </li>
             {% set ns.prev = p %}
           {% endif %}
         {% endfor %}
         <li class="page-item {% if page == pages %}disabled{% endif %}">
-          <a class="page-link" href="{{ url_for('products.product_list', page=page+1, q=search, location=location, low_stock=1 if low_stock else '', in_stock=1 if in_stock else '', hard_to_sell=1 if hard_to_sell else '') }}">&raquo;</a>
+          <a class="page-link" href="{{ url_for('products.product_list', page=page+1, q=search, location=location, low_stock=1 if low_stock else '', in_stock=1 if in_stock else '') }}">&raquo;</a>
         </li>
       </ul>
     </nav>

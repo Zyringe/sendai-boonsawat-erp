@@ -14,7 +14,9 @@ import models
 from database import init_db, get_connection
 from parse_weekly import parse_sales, parse_purchases, detect_file_type
 from parse_platform import (parse_shopee, parse_lazada, export_shopee, export_lazada,
-                            export_mapping, parse_mapping)
+                            export_mapping, parse_mapping,
+                            parse_shopee_orders, parse_lazada_orders,
+                            export_listing_mapping, parse_listing_mapping)
 from blueprints.products import bp_products
 
 app = Flask(__name__)
@@ -45,11 +47,11 @@ _STAFF_POST_OK = frozenset([
     'import_weekly', 'mapping_save', 'unit_conversions_save', 'unit_conversions_edit',
     'products.product_location_save',
     'admin_exit_simulate',
-    'conversion_new', 'conversion_edit',
+    'conversion_new', 'conversion_edit', 'conversion_run', 'conversion_delete',
+    'api_product_barcodes',
 ])
 _MANAGER_POST_OK = _STAFF_POST_OK | frozenset([
     'import_payments', 'products.product_online_stock',
-    'conversion_run', 'conversion_new', 'conversion_edit', 'conversion_delete',
 ])
 # admin can POST anything
 
@@ -148,7 +150,7 @@ def user_new():
     try:
         conn.execute(
             "INSERT INTO users(username, password_hash, display_name, role) VALUES (?,?,?,?)",
-            (username, generate_password_hash(password), display_name or username, role)
+            (username, generate_password_hash(password, method='pbkdf2:sha256'), display_name or username, role)
         )
         conn.commit()
         flash(f'เพิ่มผู้ใช้ {username} ({role}) สำเร็จ', 'success')
@@ -173,7 +175,7 @@ def user_edit(uid):
     if new_password:
         conn.execute(
             "UPDATE users SET display_name=?, role=?, is_active=?, password_hash=? WHERE id=?",
-            (display_name, role, is_active, generate_password_hash(new_password), uid)
+            (display_name, role, is_active, generate_password_hash(new_password, method='pbkdf2:sha256'), uid)
         )
     else:
         conn.execute(
@@ -288,13 +290,14 @@ def alerts_view():
     return render_template('alerts.html', alerts=alerts)
 
 
-# ── Products — moved to blueprints/products.py ──────────────────────────────
+# ── Products — moved to blueprints/products.py ────────────────────────────────
 # Routes: /products, /products/new, /products/<id>, /products/<id>/cost-history,
 #         /products/<id>/pricing, /products/<id>/edit, /products/<id>/location,
 #         /products/<id>/online-stock, /products/<id>/deactivate,
 #         /products/<id>/trade, /products/<id>/promotions/new,
 #         /promotions/<id>/deactivate, /import, /import/confirm
 # (registered via bp_products above)
+
 
 
 # ── Stock In / Out ────────────────────────────────────────────────────────────
@@ -420,7 +423,7 @@ def transaction_history():
                            date_from=date_from, date_to=date_to)
 
 
-# ── Promotions and CSV Import — moved to blueprints/products.py ─────────────
+# ── Promotions and CSV Import — moved to blueprints/products.py ───────────────
 
 
 # ── Weekly Import (ขาย / ซื้อ) ───────────────────────────────────────────────
@@ -861,6 +864,27 @@ def ecommerce():
     page     = int(request.args.get('page', 1))
     per_page = app.config['ITEMS_PER_PAGE']
 
+    listing_summary = models.get_ecommerce_listing_summary()
+
+    if tab == 'mapping':
+        mapped_filter = request.args.get('mapped')
+        mapped = True if mapped_filter == '1' else (False if mapped_filter == '0' else None)
+        platform_filter = request.args.get('platform')
+        rows, total = models.get_ecommerce_listings(
+            platform=platform_filter or None,
+            search=search or None,
+            mapped=mapped,
+            page=page,
+            per_page=per_page,
+        )
+        pages   = max(1, (total + per_page - 1) // per_page)
+        summary = models.get_platform_summary()
+        return render_template('ecommerce.html',
+                               tab=tab, rows=rows, total=total,
+                               search=search, page=page, pages=pages,
+                               summary=summary, listing_summary=listing_summary,
+                               mapped_filter=mapped_filter, platform_filter=platform_filter or '')
+
     platform = tab if tab in ('shopee', 'lazada') else 'shopee'
     rows, total = models.get_platform_skus(platform, search or None, page, per_page)
     pages   = max(1, (total + per_page - 1) // per_page)
@@ -869,7 +893,8 @@ def ecommerce():
     return render_template('ecommerce.html',
                            tab=tab, rows=rows, total=total,
                            search=search, page=page, pages=pages,
-                           summary=summary)
+                           summary=summary, listing_summary=listing_summary,
+                           mapped_filter=None, platform_filter='')
 
 
 @app.route('/ecommerce/import', methods=['POST'])
@@ -999,6 +1024,89 @@ def ecommerce_sku_edit(sku_id):
 
 
 
+# ── Ecommerce Listing Mapping ─────────────────────────────────────────────────
+
+@app.route('/ecommerce/listings/import', methods=['POST'])
+def ecommerce_listings_import():
+    platform = request.form.get('platform', '').lower()
+    if platform not in ('shopee', 'lazada'):
+        flash('ระบุ platform ไม่ถูกต้อง', 'danger')
+        return redirect(url_for('ecommerce', tab='mapping'))
+
+    files = request.files.getlist('order_files')
+    if not files or all(not f.filename for f in files):
+        flash('กรุณาเลือกไฟล์', 'danger')
+        return redirect(url_for('ecommerce', tab='mapping'))
+
+    total_added = total_skipped = 0
+    errors = []
+    for f in files:
+        if not f.filename.endswith('.xlsx'):
+            errors.append(f'{f.filename}: ต้องเป็นไฟล์ .xlsx')
+            continue
+        try:
+            file_bytes = io.BytesIO(f.read())
+            if platform == 'shopee':
+                records = parse_shopee_orders(file_bytes)
+            else:
+                records = parse_lazada_orders(file_bytes)
+            added, skipped = models.import_ecommerce_listings(records)
+            total_added   += added
+            total_skipped += skipped
+        except Exception as e:
+            errors.append(f'{f.filename}: {e}')
+
+    if errors:
+        flash(' | '.join(errors), 'danger')
+    if total_added or total_skipped:
+        flash(f'นำเข้า {platform.capitalize()} สำเร็จ: เพิ่มใหม่ {total_added} รายการ, ซ้ำข้าม {total_skipped} รายการ', 'success')
+    return redirect(url_for('ecommerce', tab='mapping'))
+
+
+@app.route('/ecommerce/listings/mapping-export')
+def ecommerce_listings_mapping_export():
+    unmatched_only = request.args.get('unmatched') == '1'
+    rows = models.get_listing_mapping_data(unmatched_only=unmatched_only)
+    if not rows:
+        flash('ยังไม่มีข้อมูล listing ในระบบ', 'warning')
+        return redirect(url_for('ecommerce', tab='mapping'))
+
+    from flask import send_file
+    import datetime
+    suggestions = models.suggest_listing_mapping()
+    buf = export_listing_mapping(rows, suggestions=suggestions, unmatched_only=False)
+    suffix = '_unmatched' if unmatched_only else ''
+    fname  = f'ecommerce_listing_mapping{suffix}_{datetime.date.today().strftime("%Y%m%d")}.xlsx'
+
+    exports_dir = os.path.join(os.path.dirname(config.BASE_DIR), 'data', 'exports')
+    os.makedirs(exports_dir, exist_ok=True)
+    with open(os.path.join(exports_dir, fname), 'wb') as fh:
+        fh.write(buf.getvalue())
+    buf.seek(0)
+
+    return send_file(buf,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                     as_attachment=True, download_name=fname)
+
+
+@app.route('/ecommerce/listings/mapping-import', methods=['POST'])
+def ecommerce_listings_mapping_import():
+    f = request.files.get('listing_mapping_file')
+    if not f or not f.filename.endswith('.xlsx'):
+        flash('กรุณาเลือกไฟล์ .xlsx', 'danger')
+        return redirect(url_for('ecommerce', tab='mapping'))
+    try:
+        file_bytes = io.BytesIO(f.read())
+        records = parse_listing_mapping(file_bytes)
+        updated, not_found = models.apply_listing_mapping(records)
+        flash(f'Mapping สำเร็จ {updated} รายการ'
+              + (f' | ไม่พบ SKU ในระบบ {not_found} รายการ' if not_found else ''),
+              'success' if not_found == 0 else 'warning')
+    except Exception as e:
+        flash(f'เกิดข้อผิดพลาด: {e}', 'danger')
+    return redirect(url_for('ecommerce', tab='mapping'))
+
+
 # ── Product Conversions (สูตรแปลงสินค้า) ─────────────────────────────────────
 
 @app.route('/conversions')
@@ -1081,9 +1189,8 @@ def conversion_run(formula_id):
     if not formula or not formula['is_active']:
         abort(404)
     if request.method == 'POST':
-        if session.get('role') not in ('admin', 'manager'):
-            flash('ต้องใช้บัญชี Admin หรือ Manager เท่านั้น', 'danger')
-            return redirect(url_for('conversion_list'))
+        if not session.get('role'):
+            abort(403)
         try:
             multiplier   = max(1, int(request.form.get('multiplier', 1)))
         except (ValueError, TypeError):
@@ -1101,7 +1208,7 @@ def conversion_run(formula_id):
 
 @app.route('/conversions/<int:formula_id>/delete', methods=['POST'])
 def conversion_delete(formula_id):
-    if session.get('role') not in ('admin', 'manager'):
+    if not session.get('role'):
         abort(403)
     models.delete_conversion_formula(formula_id)
     flash('ลบสูตรเรียบร้อยแล้ว', 'success')
@@ -1246,6 +1353,89 @@ def customer_geojson():
                                               'address','phone','salesperson','credit_days')}
         })
     return jsonify({'type': 'FeatureCollection', 'features': features})
+
+
+# ── Labels (Q3 — print price tag / shelf label) ──────────────────────────────
+
+@app.route('/labels')
+def labels_view():
+    return render_template('labels/index.html')
+
+
+@app.route('/api/products/search')
+def api_products_search():
+    q = (request.args.get('q') or '').strip()
+    limit = min(int(request.args.get('limit', 20)), 50)
+    if not q:
+        return jsonify({'items': []})
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT p.id, p.sku, p.product_name, p.base_sell_price, p.unit_type,
+               (SELECT barcode FROM product_barcodes pb
+                  WHERE pb.product_id = p.id
+                  ORDER BY pb.is_primary DESC, pb.id ASC LIMIT 1) AS barcode
+          FROM products p
+         WHERE p.is_active = 1
+           AND (p.product_name LIKE :q
+                OR CAST(p.sku AS TEXT) LIKE :q
+                OR EXISTS (SELECT 1 FROM product_barcodes pb
+                            WHERE pb.product_id = p.id AND pb.barcode LIKE :q))
+         ORDER BY
+             CASE WHEN CAST(p.sku AS TEXT) = :exact THEN 0
+                  WHEN p.product_name LIKE :starts THEN 1
+                  ELSE 2 END,
+             p.product_name
+         LIMIT :lim
+        """,
+        {'q': f'%{q}%', 'starts': f'{q}%', 'exact': q, 'lim': limit}
+    ).fetchall()
+    conn.close()
+    items = [{
+        'id':         r['id'],
+        'sku':        r['sku'],
+        'name':       r['product_name'],
+        'price':      r['base_sell_price'],
+        'unit':       r['unit_type'],
+        'barcode':    r['barcode'] or '',
+    } for r in rows]
+    return jsonify({'items': items})
+
+
+@app.route('/api/products/<int:product_id>/barcodes', methods=['GET', 'POST', 'DELETE'])
+def api_product_barcodes(product_id):
+    if not session.get('role'):
+        abort(403)
+    conn = get_connection()
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        barcode = (data.get('barcode') or '').strip()
+        if not barcode:
+            conn.close()
+            return jsonify({'error': 'barcode required'}), 400
+        try:
+            conn.execute(
+                "INSERT INTO product_barcodes (product_id, barcode, source) "
+                "VALUES (?, ?, 'manual')",
+                (product_id, barcode)
+            )
+            conn.commit()
+        except Exception as e:
+            conn.close()
+            return jsonify({'error': str(e)}), 400
+    elif request.method == 'DELETE':
+        bc_id = request.args.get('id')
+        if bc_id:
+            conn.execute("DELETE FROM product_barcodes WHERE id=? AND product_id=?",
+                         (bc_id, product_id))
+            conn.commit()
+    rows = conn.execute(
+        "SELECT id, barcode, is_primary, source FROM product_barcodes "
+        "WHERE product_id=? ORDER BY is_primary DESC, id ASC",
+        (product_id,)
+    ).fetchall()
+    conn.close()
+    return jsonify({'items': [dict(r) for r in rows]})
 
 
 if __name__ == '__main__':
