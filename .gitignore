@@ -6,6 +6,12 @@ inventory_app/imports/
 .env
 data/exports/
 data/source/
+data/logs/
 *.db
 *.db-shm
 *.db-wal
+
+# OS noise
+.DS_Store
+**/.DS_Store
+Thumbs.db
