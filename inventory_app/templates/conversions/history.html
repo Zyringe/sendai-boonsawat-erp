@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block title %}ประวัติการแปลงสินค้า – ERP{% endblock %}
+{% block page_title %}ประวัติการแปลงสินค้า{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('conversion_list') }}" class="btn btn-outline-secondary btn-sm">
+  <i class="bi bi-arrow-left me-1"></i>กลับสูตรแปลงสินค้า
+</a>
+{% endblock %}
+
+{% block content %}
+{% if not runs %}
+<div class="text-center py-5 text-subtle">
+  <i class="bi bi-clock-history" style="font-size:2.5rem;opacity:.3"></i>
+  <div class="mt-2">ยังไม่มีประวัติการแปลงสินค้า</div>
+</div>
+{% else %}
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>วันที่</th>
+          <th>สินค้าที่ได้</th>
+          <th class="text-end">จำนวน</th>
+          {% if is_manager %}
+          <th class="text-end">ต้นทุนรวม</th>
+          <th class="text-end">ต้นทุน/หน่วย</th>
+          {% endif %}
+          <th>เลขอ้างอิง</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in runs %}
+        <tr>
+          <td class="text-subtle">{{ r.event_date }}</td>
+          <td class="fw-500">{{ r.output_product_name }}</td>
+          <td class="text-end">
+            {{ r.output_qty | fmt_qty }}
+            <span class="text-subtle small ms-1">{{ r.output_unit_type }}</span>
+          </td>
+          {% if is_manager %}
+          <td class="text-end">฿{{ '{:,.2f}'.format(r.total_input_cost) }}</td>
+          <td class="text-end">฿{{ '{:,.2f}'.format(r.unit_cost) }}</td>
+          {% endif %}
+          <td class="text-subtle small">{{ r.reference_no }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

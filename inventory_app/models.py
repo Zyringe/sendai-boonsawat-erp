@@ -2107,6 +2107,22 @@ def delete_conversion_formula(formula_id):
     conn.close()
 
 
+def get_recent_conversion_runs(limit=5):
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT ccl.id, ccl.reference_no, ccl.event_date, ccl.created_at,
+               ccl.output_qty, ccl.unit_cost, ccl.total_input_cost,
+               p.product_name AS output_product_name,
+               p.unit_type    AS output_unit_type
+          FROM conversion_cost_log ccl
+          JOIN products p ON p.id = ccl.output_product_id
+         ORDER BY ccl.id DESC
+         LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    return rows
+
+
 def run_conversion(formula_id, multiplier, reference_no='', extra_note=''):
     from datetime import datetime as _dt
     conn = get_connection()

@@ -9,6 +9,46 @@
 {% endblock %}
 
 {% block content %}
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <div class="fw-500">
+      <i class="bi bi-clock-history me-1"></i>การแปลงล่าสุด
+    </div>
+    <a href="{{ url_for('conversion_history') }}" class="btn btn-sm btn-outline-secondary">
+      ดูประวัติทั้งหมด <i class="bi bi-chevron-right"></i>
+    </a>
+  </div>
+  <div class="card-body p-0">
+    {% if not recent_runs %}
+    <div class="text-center text-subtle py-3 small">ยังไม่มีการแปลงสินค้า</div>
+    {% else %}
+    <table class="table table-sm mb-0">
+      <thead>
+        <tr>
+          <th>วันที่</th>
+          <th>สินค้าที่ได้</th>
+          <th class="text-end">จำนวน</th>
+          <th>เลขอ้างอิง</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in recent_runs %}
+        <tr>
+          <td class="text-subtle">{{ r.event_date }}</td>
+          <td class="fw-500">{{ r.output_product_name }}</td>
+          <td class="text-end">
+            {{ r.output_qty | fmt_qty }}
+            <span class="text-subtle small ms-1">{{ r.output_unit_type }}</span>
+          </td>
+          <td class="text-subtle small">{{ r.reference_no }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+</div>
+
 {% if not formulas %}
 <div class="text-center py-5 text-subtle">
   <i class="bi bi-scissors" style="font-size:2.5rem;opacity:.3"></i>
@@ -61,22 +101,30 @@
                class="btn btn-sm btn-outline-secondary" title="แก้ไขสูตร">
               <i class="bi bi-pencil"></i>
             </a>
-            <form method="post" action="{{ url_for('conversion_delete', formula_id=f.id) }}"
-                  class="d-inline"
-                  onsubmit="return confirm('ลบสูตร \"{{ f.name }}\" ถาวร?')">
-              <button type="submit" class="btn btn-sm btn-danger" title="ลบสูตร">
-                <i class="bi bi-trash"></i>
-              </button>
-            </form>
+            <button type="button" class="btn btn-sm btn-danger" title="ลบสูตร"
+                    data-bs-toggle="modal" data-bs-target="#deleteFormulaModal"
+                    data-formula-id="{{ f.id }}" data-formula-name="{{ f.name }}">
+              <i class="bi bi-trash"></i>
+            </button>
             {% endif %}
-            {% if is_admin and f.is_active %}
-            <form method="post" action="{{ url_for('conversion_deactivate', formula_id=f.id) }}"
-                  class="d-inline"
-                  onsubmit="return confirm('ปิดใช้งานสูตร "{{ f.name }}"?')">
-              <button type="submit" class="btn btn-sm btn-outline-danger" title="ปิดใช้งาน">
-                <i class="bi bi-x-circle"></i>
-              </button>
-            </form>
+            {% if is_admin %}
+              {% if f.is_active %}
+              <form method="post" action="{{ url_for('conversion_deactivate', formula_id=f.id) }}"
+                    class="d-inline"
+                    onsubmit="return confirm('ปิดใช้งานสูตร &quot;{{ f.name }}&quot;?')">
+                <button type="submit" class="btn btn-sm btn-outline-danger" title="ปิดใช้งาน">
+                  <i class="bi bi-x-circle"></i>
+                </button>
+              </form>
+              {% else %}
+              <form method="post" action="{{ url_for('conversion_activate', formula_id=f.id) }}"
+                    class="d-inline"
+                    onsubmit="return confirm('เปิดใช้งานสูตร &quot;{{ f.name }}&quot;?')">
+                <button type="submit" class="btn btn-sm btn-outline-success" title="เปิดใช้งาน">
+                  <i class="bi bi-check-circle"></i>
+                </button>
+              </form>
+              {% endif %}
             {% endif %}
           </td>
         </tr>
@@ -85,5 +133,54 @@
     </table>
   </div>
 </div>
+{% endif %}
+
+{% if current_role %}
+<div class="modal fade" id="deleteFormulaModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" id="deleteFormulaForm" class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-exclamation-triangle text-danger me-1"></i>ยืนยันการลบสูตร</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2">คุณกำลังจะลบสูตร <strong id="deleteFormulaName"></strong> ถาวร</p>
+        <p class="text-subtle small mb-3">การลบจะไม่สามารถกู้คืนได้ และจะไม่กระทบการแปลงในประวัติที่ผ่านมา</p>
+        <label class="form-label small">พิมพ์ <code>ยืนยัน</code> เพื่อดำเนินการต่อ:</label>
+        <input type="text" id="deleteConfirmInput" class="form-control" autocomplete="off">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
+        <button type="submit" id="deleteConfirmBtn" class="btn btn-danger" disabled>
+          <i class="bi bi-trash me-1"></i>ลบสูตร
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function() {
+  var modal = document.getElementById('deleteFormulaModal');
+  var form  = document.getElementById('deleteFormulaForm');
+  var nameEl = document.getElementById('deleteFormulaName');
+  var input = document.getElementById('deleteConfirmInput');
+  var btn   = document.getElementById('deleteConfirmBtn');
+  var deleteUrlBase = "{{ url_for('conversion_delete', formula_id=0) }}";
+
+  modal.addEventListener('show.bs.modal', function(ev) {
+    var trigger = ev.relatedTarget;
+    var fid  = trigger.getAttribute('data-formula-id');
+    var name = trigger.getAttribute('data-formula-name');
+    nameEl.textContent = name;
+    form.action = deleteUrlBase.replace(/\/0\/delete$/, '/' + fid + '/delete');
+    input.value = '';
+    btn.disabled = true;
+  });
+  input.addEventListener('input', function() {
+    btn.disabled = (input.value.trim() !== 'ยืนยัน');
+  });
+})();
+</script>
 {% endif %}
 {% endblock %}

@@ -1112,7 +1112,15 @@ def ecommerce_listings_mapping_import():
 @app.route('/conversions')
 def conversion_list():
     formulas = models.get_conversion_formulas()
-    return render_template('conversions/list.html', formulas=formulas)
+    recent_runs = models.get_recent_conversion_runs(limit=5)
+    return render_template('conversions/list.html',
+                           formulas=formulas, recent_runs=recent_runs)
+
+
+@app.route('/conversions/history')
+def conversion_history():
+    runs = models.get_recent_conversion_runs(limit=200)
+    return render_template('conversions/history.html', runs=runs)
 
 
 def _get_active_products():
@@ -1224,6 +1232,18 @@ def conversion_deactivate(formula_id):
     conn.commit()
     conn.close()
     flash('ปิดใช้งานสูตรแล้ว', 'success')
+    return redirect(url_for('conversion_list'))
+
+
+@app.route('/conversions/<int:formula_id>/activate', methods=['POST'])
+def conversion_activate(formula_id):
+    if session.get('role') != 'admin':
+        abort(403)
+    conn = get_connection()
+    conn.execute("UPDATE conversion_formulas SET is_active=1 WHERE id=?", (formula_id,))
+    conn.commit()
+    conn.close()
+    flash('เปิดใช้งานสูตรแล้ว', 'success')
     return redirect(url_for('conversion_list'))
 
 
@@ -1359,6 +1379,8 @@ def customer_geojson():
 
 @app.route('/labels')
 def labels_view():
+    if session.get('role') != 'admin':
+        abort(404)
     return render_template('labels/index.html')
 
 

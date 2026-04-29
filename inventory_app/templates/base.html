@@ -52,10 +52,12 @@
        class="sidebar-link {% if (request.endpoint or '').startswith('conversion_') or request.endpoint == 'conversion_list' %}active{% endif %}">
       <i class="bi bi-scissors"></i> แปลงสินค้า
     </a>
+    {% if is_admin %}
     <a href="{{ url_for('labels_view') }}"
        class="sidebar-link {% if request.endpoint == 'labels_view' %}active{% endif %}">
       <i class="bi bi-upc-scan"></i> พิมพ์ป้าย/บาร์โค้ด
     </a>
+    {% endif %}
 
     <div class="sidebar-section">การค้า</div>
     <a href="{{ url_for('trade_dashboard') }}"
