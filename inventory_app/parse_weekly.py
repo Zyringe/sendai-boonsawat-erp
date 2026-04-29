@@ -56,6 +56,23 @@ def _is_skip(s: str) -> bool:
            bool(re.match(r'^[-=\s]+$', s))
 
 
+# Brand-name typos in BSN's source data.
+# Pattern → replacement. Case-insensitive, word-boundary safe.
+# Add new aliases here when discovered; matching happens at parse time so
+# both new imports and re-imports of historical files land with the canonical name.
+_BRAND_ALIASES = [
+    (re.compile(r'\bBROVO\b', re.IGNORECASE), 'BRAVO'),
+]
+
+
+def _apply_brand_aliases(name: str) -> str:
+    if not name:
+        return name
+    for pat, repl in _BRAND_ALIASES:
+        name = pat.sub(repl, name)
+    return name
+
+
 def parse_sales(filepath: str) -> list:
     return _parse(filepath, _TX_SALES, 'sales')
 
@@ -93,7 +110,7 @@ def _parse(filepath: str, tx_pat, file_type: str) -> list:
         if lead == 3 and '/' in stripped and not stripped.startswith('รวม'):
             m = re.match(r'^(.+?)\s*/(\S+)\s*$', stripped)
             if m:
-                current_prod_name = m.group(1).strip()
+                current_prod_name = _apply_brand_aliases(m.group(1).strip())
                 current_prod_code = m.group(2).strip()
             continue
 
@@ -337,7 +354,7 @@ def _parse_detail_line(stripped):
     return {
         'seq':           int(seq),
         'bsn_code':      bsn_code,
-        'product_name':  name.strip(),
+        'product_name':  _apply_brand_aliases(name.strip()),
         'qty':           _parse_float_or_zero(qty_s),
         'unit':          unit,
         'unit_price':    unit_price,
