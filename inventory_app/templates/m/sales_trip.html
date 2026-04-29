@@ -1,0 +1,101 @@
+{% extends 'base.html' %}
+{% block title %}แผนทริปขาย – Sendy{% endblock %}
+{% block page_title %}แผนทริปขาย{% endblock %}
+
+{% block head_extra %}
+<style>
+  .region-chip {
+    display: inline-block;
+    padding: 4px 12px;
+    margin: 2px;
+    border-radius: 16px;
+    background: #f1f5f9;
+    color: var(--text-main);
+    text-decoration: none;
+    font-size: .85rem;
+    border: 1px solid var(--border);
+  }
+  .region-chip.active { background: var(--bsn-red); color: #fff; border-color: var(--bsn-red); }
+  .trip-cust {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    display: block;
+    text-decoration: none;
+    color: var(--text-main);
+    box-shadow: var(--shadow-sm);
+  }
+  .trip-cust.has-due { border-left: 4px solid var(--bsn-red); padding-left: 10px; }
+  .trip-cust-name { font-weight: 600; line-height: 1.3; }
+  .trip-cust-meta { display: flex; gap: 12px; align-items: center; margin-top: 4px; flex-wrap: wrap; font-size: .8rem; color: var(--text-muted); }
+  .trip-cust-due { color: var(--bsn-red); font-weight: 600; margin-left: auto; }
+  .region-section {
+    background: rgba(0,0,0,.03);
+    margin: 16px -12px 8px;
+    padding: 6px 14px;
+    font-weight: 600;
+    font-size: .85rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    position: sticky;
+    top: 60px;
+    z-index: 30;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <div class="text-subtle small mb-1">เลือกเขต:</div>
+    <div>
+      <a href="{{ url_for('mobile.sales_trip') }}"
+         class="region-chip {% if not region_filter %}active{% endif %}">ทั้งหมด</a>
+      {% for r in all_regions %}
+      <a href="{{ url_for('mobile.sales_trip', region=r) }}"
+         class="region-chip {% if region_filter == r %}active{% endif %}">{{ r }}</a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{% if total_outstanding %}
+<div class="alert alert-warning py-2 mb-3 small">
+  <i class="bi bi-exclamation-triangle me-1"></i>
+  ยอดค้างรวมในกลุ่มนี้: <strong>฿{{ '{:,.0f}'.format(total_outstanding) }}</strong>
+</div>
+{% endif %}
+
+{% for region, customers in grouped.items() %}
+<div class="region-section">
+  <i class="bi bi-pin-map me-1"></i>{{ region }}
+  <span class="text-subtle ms-2">({{ customers|length }} ราย)</span>
+</div>
+{% for c in customers %}
+<a href="{{ url_for('mobile.customer_detail', customer_name=c.name) }}"
+   class="trip-cust {% if c.outstanding and c.outstanding > 0 %}has-due{% endif %}">
+  <div class="trip-cust-name">{{ c.name }}</div>
+  <div class="trip-cust-meta">
+    <span class="font-mono">{{ c.code }}</span>
+    {% if c.last_sale %}<span><i class="bi bi-clock me-1"></i>{{ c.last_sale }}</span>{% endif %}
+    {% if c.phone %}<span><i class="bi bi-telephone me-1"></i>{{ c.phone.split(',')[0].strip() }}</span>{% endif %}
+    {% if c.outstanding and c.outstanding > 0 %}
+      <span class="trip-cust-due">฿{{ '{:,.0f}'.format(c.outstanding) }}</span>
+    {% endif %}
+  </div>
+</a>
+{% endfor %}
+{% else %}
+<div class="card">
+  <div class="card-body text-center text-subtle py-5">
+    <i class="bi bi-people fs-2 d-block mb-2 opacity-50"></i>
+    ไม่พบลูกค้าในเขตนี้
+  </div>
+</div>
+{% endfor %}
+
+{% endblock %}

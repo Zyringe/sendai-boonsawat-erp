@@ -135,7 +135,7 @@
     {% if search %}<span class="text-subtle small ms-2">· ค้นหา "{{ search }}"</span>{% endif %}
   </div>
   <div class="table-responsive">
-    <table class="table table-sm table-hover mb-0 small">
+    <table class="table table-sm table-mobile-cards table-hover mb-0 small">
       <thead class="table-light">
         <tr>
           <th class="ps-3" style="width:2.5rem">#</th>
@@ -148,20 +148,23 @@
       <tbody>
         {% for row in rows %}
         <tr>
-          <td class="ps-3 text-subtle">{{ loop.index }}</td>
-          <td class="fw-medium">
+          <td class="ps-3 text-subtle td-hide-mobile">{{ loop.index }}</td>
+          <td class="td-primary fw-medium">
             <a href="{{ url_for('customer_summary', customer_name=row.customer) }}"
                class="text-decoration-none">
               {{ row.customer or '–' }}
             </a>
+            {% if row.customer_code %}
+            <span class="d-mobile-only badge badge-gray font-mono ms-1">{{ row.customer_code }}</span>
+            {% endif %}
           </td>
-          <td class="text-subtle">{{ row.customer_code or '–' }}</td>
-          <td class="text-center">
+          <td data-label="รหัส" class="text-subtle td-hide-mobile">{{ row.customer_code or '–' }}</td>
+          <td data-label="บิลค้างชำระ" class="text-center">
             <span class="badge bg-danger-subtle text-danger">
               {{ row.unpaid_bills }} ใบ
             </span>
           </td>
-          <td class="text-end pe-3 fw-bold text-danger">
+          <td data-label="ยอดค้าง (฿)" class="text-end pe-3 fw-bold text-danger">
             {{ '{:,.2f}'.format(row.outstanding_amount or 0) }}
           </td>
         </tr>

@@ -1,0 +1,30 @@
+{# Mobile bottom navigation — visible only <lg (≤991.98px). Slots locked Phase 1 / Q6=a.
+   Slot 5 opens the offcanvas drawer in _mobile_drawer.html. #}
+<nav class="bottom-nav d-lg-none" aria-label="เมนูหลักมือถือ">
+  <a href="{{ url_for('dashboard') }}"
+     class="bottom-nav-item {% if request.endpoint == 'dashboard' %}active{% endif %}">
+    <i class="bi bi-house-door{% if request.endpoint == 'dashboard' %}-fill{% endif %}"></i>
+    <span>หน้าแรก</span>
+  </a>
+  <a href="{{ url_for('mobile.stock_search') }}"
+     class="bottom-nav-item {% if request.endpoint in ('mobile.stock_search', 'products.product_list', 'products.product_detail') %}active{% endif %}">
+    <i class="bi bi-search"></i>
+    <span>ค้นหา</span>
+  </a>
+  <a href="{{ url_for('customer_list') }}"
+     class="bottom-nav-item {% if request.endpoint in ['customer_list','customer_summary'] %}active{% endif %}">
+    <i class="bi bi-people{% if request.endpoint in ['customer_list','customer_summary'] %}-fill{% endif %}"></i>
+    <span>ลูกค้า</span>
+  </a>
+  <a href="{{ url_for('payment_customers') }}"
+     class="bottom-nav-item {% if request.endpoint in ('payment_status','payment_customers','payment_customer_detail') %}active{% endif %}">
+    <i class="bi bi-cash-coin"></i>
+    <span>ค้างชำระ</span>
+  </a>
+  <button type="button" class="bottom-nav-item"
+          data-bs-toggle="offcanvas" data-bs-target="#mobileDrawer" aria-controls="mobileDrawer">
+    <i class="bi bi-grid"></i>
+    <span>เพิ่มเติม</span>
+    {% if alert_count > 0 %}<span class="badge-count">{{ alert_count }}</span>{% endif %}
+  </button>
+</nav>

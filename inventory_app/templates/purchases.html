@@ -40,7 +40,7 @@
     <span class="fw-600 text-accent">รวม: ฿{{ rows | sum(attribute='net') | fmt_price }}</span>
   </div>
   <div class="table-responsive">
-    <table class="table mb-0">
+    <table class="table table-mobile-cards mb-0">
       <thead>
         <tr>
           <th>วันที่</th><th>เลขที่เอกสาร</th><th>สินค้า</th>
@@ -52,9 +52,9 @@
       <tbody>
         {% for r in rows %}
         <tr>
-          <td class="font-mono text-subtle">{{ r.date_iso }}</td>
-          <td>{{ doc_link(r.doc_no) }}</td>
-          <td>
+          <td data-label="วันที่" class="font-mono text-subtle">{{ r.date_iso }}</td>
+          <td data-label="เอกสาร">{{ doc_link(r.doc_no) }}</td>
+          <td class="td-primary">
             {% if r.product_id %}
               <a href="{{ url_for('products.product_detail', product_id=r.product_id) }}"
                  class="text-decoration-none text-main">{{ r.display_name }}</a>
@@ -64,11 +64,11 @@
               </span>
             {% endif %}
           </td>
-          <td class="text-subtle small">{{ r.supplier or '–' }}</td>
-          <td class="text-end small">{{ r.qty | fmt_qty }} {{ r.unit }}</td>
-          <td class="text-end small">{{ r.unit_price | fmt_price }}</td>
-          <td class="text-end small text-danger">{{ r.discount or '–' }}</td>
-          <td class="text-end fw-600">{{ r.net | fmt_price }}</td>
+          <td data-label="ผู้จำหน่าย" class="text-subtle small">{{ r.supplier or '–' }}</td>
+          <td data-label="จำนวน" class="text-end small">{{ r.qty | fmt_qty }} {{ r.unit }}</td>
+          <td data-label="ราคา/หน่วย" class="text-end small">{{ r.unit_price | fmt_price }}</td>
+          <td data-label="ส่วนลด" class="text-end small text-danger">{{ r.discount or '–' }}</td>
+          <td data-label="ยอดสุทธิ" class="text-end fw-600">{{ r.net | fmt_price }}</td>
         </tr>
         {% else %}
         <tr><td colspan="8" class="text-center text-subtle py-5">ยังไม่มีข้อมูลการซื้อ</td></tr>

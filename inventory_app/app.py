@@ -18,6 +18,8 @@ from parse_platform import (parse_shopee, parse_lazada, export_shopee, export_la
                             parse_shopee_orders, parse_lazada_orders,
                             export_listing_mapping, parse_listing_mapping)
 from blueprints.products import bp_products
+from blueprints.supplier_catalogue import bp_supplier_catalogue
+from blueprints.mobile import bp_mobile
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = config.SECRET_KEY
@@ -25,10 +27,16 @@ app.config['JSON_AS_ASCII'] = False
 app.config['UPLOAD_FOLDER'] = config.UPLOAD_FOLDER
 app.config['ITEMS_PER_PAGE'] = config.ITEMS_PER_PAGE
 app.config['DB_ROUTES_ENABLED'] = False
+app.config['PERMANENT_SESSION_LIFETIME'] = config.PERMANENT_SESSION_LIFETIME
+app.config['SESSION_COOKIE_HTTPONLY']    = config.SESSION_COOKIE_HTTPONLY
+app.config['SESSION_COOKIE_SAMESITE']    = config.SESSION_COOKIE_SAMESITE
+app.config['SESSION_COOKIE_SECURE']      = config.SESSION_COOKIE_SECURE
 
 os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
 
 app.register_blueprint(bp_products)
+app.register_blueprint(bp_supplier_catalogue)
+app.register_blueprint(bp_mobile)
 
 with app.app_context():
     init_db()
@@ -103,11 +111,13 @@ def login():
         ).fetchone()
         conn.close()
         if user and check_password_hash(user['password_hash'], password):
+            remember = request.form.get('remember') == '1'
             session.clear()
             session['user_id']      = user['id']
             session['username']     = user['username']
             session['display_name'] = user['display_name'] or user['username']
             session['role']         = user['role']
+            session.permanent       = remember   # 30-day cookie when checked
             flash(f'ยินดีต้อนรับ {session["display_name"]}', 'success')
             return redirect(request.args.get('next') or url_for('dashboard'))
         flash('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง', 'danger')
@@ -1461,4 +1471,4 @@ def api_product_barcodes(product_id):
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5001, use_reloader=False)
+    app.run(debug=True, host='0.0.0.0', port=5001, use_reloader=False)

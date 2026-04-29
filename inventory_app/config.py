@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -14,3 +15,13 @@ UPLOAD_FOLDER = os.path.join(BASE_DIR, 'imports')
 # Override via Railway environment variables
 SECRET_KEY     = os.environ.get('SECRET_KEY',     'sendai-boonsawat-erp-secret')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD',  'sendai12345')
+
+# Session config — "จำฉันไว้" persists for 30 days.
+# When user ticks the checkbox at /login, the route sets session.permanent=True
+# which makes the cookie outlive the browser tab and use this lifetime.
+PERMANENT_SESSION_LIFETIME = timedelta(days=30)
+SESSION_COOKIE_HTTPONLY    = True
+SESSION_COOKIE_SAMESITE    = 'Lax'
+# Secure cookie only when serving over HTTPS (Railway prod). Local dev (http)
+# would silently drop the cookie if this were True. Toggle via env when deployed.
+SESSION_COOKIE_SECURE      = os.environ.get('SESSION_COOKIE_SECURE', '').lower() in ('1', 'true', 'yes')

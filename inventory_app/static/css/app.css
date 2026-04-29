@@ -421,9 +421,173 @@ body {
 ::-webkit-scrollbar-thumb { background: #c9c2b6; border-radius: 10px; }
 ::-webkit-scrollbar-thumb:hover { background: #8a8275; }
 
-/* ── Mobile sidebar toggle ── */
-@media (max-width: 768px) {
-  .sidebar { transform: translateX(-100%); }
+/* ── Mobile/tablet sidebar (Bootstrap lg breakpoint = 992px) ── */
+@media (max-width: 991.98px) {
+  .sidebar {
+    transform: translateX(-100%);
+    height: 100vh;        /* iOS Safari fallback */
+    height: 100dvh;       /* dynamic viewport height handles address-bar resize */
+  }
   .sidebar.open { transform: translateX(0); }
   .main-wrap { margin-left: 0; }
+
+  .page-content { padding: 12px; }     /* less wasted horizontal space on small screens */
+  .topbar { padding: 0 12px; }
+
+  /* Bottom-nav clearance: keep last content visible above the fixed nav (60px nav + 6px breathing) */
+  body { padding-bottom: 66px; }
+}
+
+/* ── Sidebar backdrop (mobile only, click outside to close) ── */
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.4);
+  z-index: 99;            /* sidebar = 100, backdrop just below */
+  opacity: 0;
+  transition: opacity .25s ease;
+}
+.sidebar-backdrop.open { display: block; opacity: 1; }
+
+/* ── Bottom nav (mobile only) ── */
+.bottom-nav {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 60px;
+  background: var(--card-bg);
+  border-top: 1px solid var(--border);
+  display: flex;
+  z-index: 60;
+  box-shadow: 0 -1px 6px rgba(0,0,0,.04);
+}
+.bottom-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 2px;
+  text-decoration: none;
+  color: var(--text-muted);
+  font-size: .65rem;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  position: relative;
+}
+.bottom-nav-item i { font-size: 1.25rem; line-height: 1; }
+.bottom-nav-item.active { color: var(--accent); }
+.bottom-nav-item .badge-count {
+  position: absolute;
+  top: 4px; right: calc(50% - 18px);
+  min-width: 16px; height: 16px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 8px;
+  font-size: .6rem;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 4px;
+}
+
+/* Mobile-only / desktop-only utility classes (paired with Bootstrap d-lg-*) */
+.d-mobile-only { display: none; }
+@media (max-width: 991.98px) {
+  .d-mobile-only { display: initial; }
+}
+
+/* ── Responsive table → cards on mobile ─────────────────────────────────────
+   Add class `table-mobile-cards` to a <table>, then put `data-label="..."` on
+   each <td>. On <lg viewports the table flattens to a stack of cards, with
+   each cell prefixed by its label. Headers (<thead>) hide on mobile.
+
+   Cells with class `td-primary` render larger (good for the row's main name).
+   Cells with class `td-actions` keep their action buttons right-aligned.
+   Cells with class `td-hide-mobile` are hidden entirely on mobile. */
+@media (max-width: 991.98px) {
+  table.table-mobile-cards {
+    border: none;
+    background: transparent;
+  }
+  table.table-mobile-cards thead { display: none; }
+  table.table-mobile-cards,
+  table.table-mobile-cards tbody {
+    display: block;
+    width: 100%;
+  }
+  /* Each row becomes a flex column so we can use `order` to pin the title
+     cell to the top of the card and the actions cell to the bottom,
+     regardless of where they appear in the table's source column order
+     (which is dictated by <thead> for desktop layout). */
+  table.table-mobile-cards tr {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-bottom: 8px;
+    padding: 14px 18px;          /* breathing room around card edges */
+    box-shadow: var(--shadow-sm);
+  }
+  /* On mobile, low-stock cards use a left red border accent + faint tint
+     instead of full red bg — keeps the OUT button visible (it has the same
+     pink as the bg highlight on desktop, .row-low-stock td bg #fdecee). */
+  table.table-mobile-cards tr.row-low-stock {
+    background: #fff8f8 !important;            /* very faint red */
+    border-left: 4px solid var(--bsn-red);
+    padding-left: 14px;                        /* offset for the new border */
+  }
+  table.table-mobile-cards tr.row-low-stock td { background: transparent !important; }
+  table.table-mobile-cards tr:hover td { background: transparent; }
+  /* 50/50 label/value grid — both columns get equal width.
+     Value sits at left of col 2 (which is the visual midpoint of the card),
+     giving the row a balanced two-column feel without label/value being
+     flung to opposite edges. */
+  table.table-mobile-cards td {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: baseline;
+    column-gap: 12px;
+    border: none;
+    padding: 3px 0;
+    font-size: .9rem;
+    text-align: left;
+  }
+  table.table-mobile-cards td::before {
+    content: attr(data-label);
+    color: var(--text-muted);
+    font-size: .78rem;
+    font-weight: 500;
+    text-transform: none;
+  }
+  /* Defeat Bootstrap's `.text-end { text-align: right !important }` so values
+     sit right after the label instead of being flung to the far right edge.
+     `!important` is required because Bootstrap's utility uses it. */
+  table.table-mobile-cards td.text-end,
+  table.table-mobile-cards td.text-center { text-align: left !important; }
+  /* No label → don't reserve space for ::before pseudo, render single-column */
+  table.table-mobile-cards td:not([data-label])::before { content: none; }
+  table.table-mobile-cards td:not([data-label]):not(.td-primary):not(.td-actions) {
+    grid-template-columns: 1fr;
+  }
+  table.table-mobile-cards td.td-primary {
+    font-size: 1rem;
+    font-weight: 600;
+    padding: 0 0 6px 2px;  /* slight extra left inset on top of tr padding */
+    margin-bottom: 4px;
+    border-bottom: 1px dashed var(--border);
+    display: block;       /* full-width title row */
+    order: -1;            /* always first in the card (flex column on tr) */
+  }
+  table.table-mobile-cards td.td-primary::before { content: none; }
+  table.table-mobile-cards td.td-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: 8px;
+    order: 99;            /* always last in the card */
+  }
+  table.table-mobile-cards td.td-actions::before { content: none; }
+  table.table-mobile-cards td.td-hide-mobile { display: none; }
 }

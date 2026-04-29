@@ -1,0 +1,87 @@
+{# Mobile "More" drawer — Bootstrap Offcanvas (right). Holds secondary nav links
+   that didn't fit in the 5-slot bottom nav. Bottom nav handles primary tasks. #}
+<div class="offcanvas offcanvas-end" tabindex="-1" id="mobileDrawer" aria-labelledby="mobileDrawerLabel">
+  <div class="offcanvas-header border-bottom">
+    <h5 class="offcanvas-title" id="mobileDrawerLabel">
+      <i class="bi bi-grid me-2"></i>เพิ่มเติม
+    </h5>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="ปิด"></button>
+  </div>
+  <div class="offcanvas-body p-0">
+    <div class="list-group list-group-flush">
+
+      <a href="{{ url_for('alerts_view') }}" class="list-group-item list-group-item-action d-flex align-items-center">
+        <i class="bi bi-exclamation-triangle me-3"></i>
+        <span class="flex-grow-1">แจ้งเตือน</span>
+        {% if alert_count > 0 %}<span class="badge bg-danger rounded-pill">{{ alert_count }}</span>{% endif %}
+      </a>
+      <a href="{{ url_for('mobile.sales_trip') }}" class="list-group-item list-group-item-action">
+        <i class="bi bi-pin-map me-3"></i>แผนทริปขาย (เขต)
+      </a>
+      <a href="{{ url_for('products.product_list') }}" class="list-group-item list-group-item-action">
+        <i class="bi bi-grid-3x3-gap me-3"></i>รายการสินค้าเต็ม
+      </a>
+
+      <div class="list-group-item bg-light text-muted small fw-bold">คลังสินค้า</div>
+      <a href="{{ url_for('transaction_history') }}" class="list-group-item list-group-item-action">
+        <i class="bi bi-arrow-left-right me-3"></i>ประวัติสต็อก
+      </a>
+      <a href="{{ url_for('conversion_list') }}" class="list-group-item list-group-item-action">
+        <i class="bi bi-scissors me-3"></i>แปลงสินค้า
+      </a>
+      {% if is_admin %}
+      <a href="{{ url_for('labels_view') }}" class="list-group-item list-group-item-action">
+        <i class="bi bi-upc-scan me-3"></i>พิมพ์ป้าย/บาร์โค้ด
+      </a>
+      {% endif %}
+
+      <div class="list-group-item bg-light text-muted small fw-bold">การค้า</div>
+      <a href="{{ url_for('trade_dashboard') }}" class="list-group-item list-group-item-action">
+        <i class="bi bi-bar-chart-line me-3"></i>ภาพรวมการค้า
+      </a>
+      <a href="{{ url_for('sales_view') }}" class="list-group-item list-group-item-action">
+        <i class="bi bi-graph-up-arrow me-3"></i>ยอดขาย
+      </a>
+      <a href="{{ url_for('purchases_view') }}" class="list-group-item list-group-item-action">
+        <i class="bi bi-truck me-3"></i>ยอดซื้อ
+      </a>
+      <a href="{{ url_for('supplier_list') }}" class="list-group-item list-group-item-action">
+        <i class="bi bi-truck me-3"></i>Supplier
+      </a>
+      {% if is_admin %}
+      <a href="{{ url_for('customer_map') }}" class="list-group-item list-group-item-action">
+        <i class="bi bi-geo-alt me-3"></i>แผนที่ลูกค้า
+      </a>
+      {% endif %}
+
+      <div class="list-group-item bg-light text-muted small fw-bold">E-commerce</div>
+      <a href="{{ url_for('ecommerce', tab='shopee') }}" class="list-group-item list-group-item-action">
+        <i class="bi bi-bag-heart me-3" style="color:#ee4d2d"></i>Shopee
+      </a>
+      <a href="{{ url_for('ecommerce', tab='lazada') }}" class="list-group-item list-group-item-action">
+        <i class="bi bi-shop me-3" style="color:#003087"></i>Lazada
+      </a>
+
+      <div class="list-group-item bg-light text-muted small fw-bold">นำเข้าข้อมูล</div>
+      <a href="{{ url_for('import_weekly') }}" class="list-group-item list-group-item-action">
+        <i class="bi bi-calendar-week me-3"></i>อัพเดทข้อมูล
+      </a>
+      <a href="{{ url_for('mapping') }}" class="list-group-item list-group-item-action">
+        <i class="bi bi-tags me-3"></i>ผูกรหัส BSN
+      </a>
+      <a href="{{ url_for('unit_conversions') }}" class="list-group-item list-group-item-action">
+        <i class="bi bi-arrow-left-right me-3"></i>แปลงหน่วย
+      </a>
+      <a href="{{ url_for('supplier_catalogue.supplier_catalogue_list') }}" class="list-group-item list-group-item-action">
+        <i class="bi bi-journals me-3"></i>แคตตาล็อกผู้จัดจำหน่าย
+      </a>
+
+      {% if is_admin %}
+      <div class="list-group-item bg-light text-muted small fw-bold">ระบบ</div>
+      <a href="{{ url_for('user_list') }}" class="list-group-item list-group-item-action">
+        <i class="bi bi-people me-3"></i>จัดการผู้ใช้
+      </a>
+      {% endif %}
+    </div>
+  </div>
+</div>

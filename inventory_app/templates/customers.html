@@ -38,7 +38,7 @@
 {# ── Customer table ───────────────────────────────────────────────────────── #}
 <div class="card">
   <div class="table-responsive">
-    <table class="table mb-0 table-hover">
+    <table class="table table-mobile-cards mb-0 table-hover">
       <thead>
         <tr>
           <th>ชื่อลูกค้า</th>
@@ -54,21 +54,24 @@
         {% for c in customers %}
         <tr style="cursor:pointer"
             onclick="window.location='{{ url_for('customer_summary', customer_name=c.customer) }}'">
-          <td class="fw-500">{{ c.customer }}</td>
-          <td><span class="badge badge-gray font-mono">{{ c.customer_code }}</span></td>
-          <td class="text-center">
+          <td class="td-primary fw-500">
+            {{ c.customer }}
+            <span class="d-mobile-only badge badge-gray font-mono ms-1">{{ c.customer_code }}</span>
+          </td>
+          <td data-label="รหัส" class="td-hide-mobile"><span class="badge badge-gray font-mono">{{ c.customer_code }}</span></td>
+          <td data-label="เขต" class="text-center">
             {% if c.region %}
             <span class="badge badge-info">{{ c.region }}</span>
             {% else %}
             <span class="text-subtle">—</span>
             {% endif %}
           </td>
-          <td class="small text-subtle">{{ c.salesperson or '—' }}</td>
-          <td class="text-center text-subtle small">{{ c.doc_count }}</td>
-          <td class="text-end fw-600 font-mono text-success">
+          <td data-label="พนักงานขาย" class="small text-subtle">{{ c.salesperson or '—' }}</td>
+          <td data-label="เอกสาร" class="text-center text-subtle small">{{ c.doc_count }}</td>
+          <td data-label="ยอดรวม (฿)" class="text-end fw-600 font-mono text-success">
             {{ '{:,.0f}'.format(c.total_net) }}
           </td>
-          <td class="text-center font-mono small text-subtle">{{ c.last_date or '—' }}</td>
+          <td data-label="ซื้อล่าสุด" class="text-center font-mono small text-subtle">{{ c.last_date or '—' }}</td>
         </tr>
         {% else %}
         <tr><td colspan="7" class="text-center text-subtle py-4">ไม่พบลูกค้าที่ตรงกับการค้นหา</td></tr>

@@ -1,0 +1,133 @@
+{% extends 'base.html' %}
+{% block title %}ค้นหาสินค้า – Sendy{% endblock %}
+{% block page_title %}ค้นหาสินค้า{% endblock %}
+
+{% block head_extra %}
+<style>
+  /* Sticky search bar at top of content area, immediately under topbar. */
+  .stock-search-wrap {
+    position: sticky;
+    top: 60px;                     /* below topbar (60px high) */
+    z-index: 40;
+    background: var(--body-bg);
+    padding: 8px 0 12px;
+    margin: -12px -12px 8px;        /* negate page-content padding for full bleed */
+    padding-left: 12px;
+    padding-right: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .stock-search-wrap .form-control {
+    height: 48px;
+    font-size: 16px;                /* prevent iOS zoom-on-focus */
+  }
+  .stock-result {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    text-decoration: none;
+    color: var(--text-main);
+    display: block;
+    box-shadow: var(--shadow-sm);
+  }
+  .stock-result.is-low { border-left: 4px solid var(--bsn-red); padding-left: 10px; background: #fff8f8; }
+  .stock-result-name { font-weight: 600; line-height: 1.3; }
+  .stock-result-meta { display: flex; gap: 12px; align-items: center; margin-top: 4px; flex-wrap: wrap; }
+  .stock-result-qty { font-weight: 700; font-size: 1.1rem; }
+  .stock-result-qty.low { color: var(--bsn-red); }
+  .stock-result-sku { background: #f1f5f9; color: var(--text-muted); font-family: 'SF Mono', monospace; font-size: .75rem; padding: 1px 6px; border-radius: 4px; }
+  .stock-empty { text-align: center; color: var(--text-muted); padding: 40px 12px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="stock-search-wrap">
+  <div class="input-group">
+    <span class="input-group-text"><i class="bi bi-search"></i></span>
+    <input type="search" id="q" class="form-control"
+           placeholder="ชื่อสินค้า, SKU, หรือ barcode…"
+           autocomplete="off" autocapitalize="none" autocorrect="off"
+           inputmode="search">
+  </div>
+  <div class="text-subtle small mt-1" id="qStatus">เริ่มพิมพ์เพื่อค้นหา</div>
+</div>
+
+<div id="results"></div>
+
+<div class="stock-empty" id="emptyState">
+  <i class="bi bi-search fs-2 d-block mb-2 opacity-50"></i>
+  พิมพ์อย่างน้อย 1 ตัวอักษรเพื่อค้นหาสินค้า
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+  const q       = document.getElementById('q');
+  const results = document.getElementById('results');
+  const empty   = document.getElementById('emptyState');
+  const status  = document.getElementById('qStatus');
+  let lastReq = 0;
+  let timer = null;
+
+  function render(items, query) {
+    if (!items.length) {
+      results.innerHTML = '';
+      empty.innerHTML = '<i class="bi bi-emoji-frown fs-2 d-block mb-2 opacity-50"></i>ไม่พบสินค้าที่ตรงกับ <strong>' + escapeHtml(query) + '</strong>';
+      empty.style.display = 'block';
+      return;
+    }
+    empty.style.display = 'none';
+    results.innerHTML = items.map(p => `
+      <a href="/products/${p.id}" class="stock-result ${p.low ? 'is-low' : ''}">
+        <div class="stock-result-name">${escapeHtml(p.name)}</div>
+        <div class="stock-result-meta">
+          <span class="stock-result-sku">SKU ${p.sku}</span>
+          <span class="stock-result-qty ${p.low ? 'low' : ''}">${formatNum(p.qty)} ${escapeHtml(p.unit || '')}</span>
+          ${p.price ? `<span class="text-subtle small">฿${formatPrice(p.price)}</span>` : ''}
+          ${p.location ? `<span class="text-subtle small"><i class="bi bi-geo-alt"></i> ${escapeHtml(p.location)}</span>` : ''}
+          ${p.low ? '<span class="badge bg-danger-subtle text-danger ms-auto">สต็อกต่ำ</span>' : ''}
+        </div>
+      </a>
+    `).join('');
+  }
+
+  function search(query) {
+    if (!query.trim()) {
+      results.innerHTML = '';
+      empty.innerHTML = '<i class="bi bi-search fs-2 d-block mb-2 opacity-50"></i>พิมพ์อย่างน้อย 1 ตัวอักษรเพื่อค้นหาสินค้า';
+      empty.style.display = 'block';
+      status.textContent = 'เริ่มพิมพ์เพื่อค้นหา';
+      return;
+    }
+    status.textContent = 'กำลังค้นหา…';
+    const reqId = ++lastReq;
+    fetch('/m/stock/api?q=' + encodeURIComponent(query))
+      .then(r => r.json())
+      .then(data => {
+        if (reqId !== lastReq) return;   // discard stale response
+        render(data.items, data.q);
+        status.textContent = data.items.length + ' รายการ';
+      })
+      .catch(() => {
+        if (reqId !== lastReq) return;
+        status.textContent = 'เกิดข้อผิดพลาด';
+      });
+  }
+
+  q.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => search(q.value), 200);
+  });
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function formatNum(n) { return Number(n).toLocaleString('th-TH'); }
+  function formatPrice(n) { return Number(n).toLocaleString('th-TH', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+
+  q.focus();
+})();
+</script>
+{% endblock %}

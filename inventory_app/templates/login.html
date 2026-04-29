@@ -13,15 +13,20 @@
         <form method="post">
           <div class="mb-3">
             <label class="form-label">ชื่อผู้ใช้</label>
-            <input type="text" name="username" class="form-control" autofocus
-                   autocomplete="username" placeholder="username">
+            <input type="text" name="username" class="form-control form-control-lg" autofocus
+                   autocomplete="username" inputmode="email" placeholder="username">
           </div>
           <div class="mb-3">
             <label class="form-label">รหัสผ่าน</label>
-            <input type="password" name="password" class="form-control"
+            <input type="password" name="password" class="form-control form-control-lg"
                    autocomplete="current-password" placeholder="รหัสผ่าน">
           </div>
-          <button type="submit" class="btn btn-primary w-100">
+          <div class="form-check mb-3">
+            <input type="checkbox" name="remember" id="remember" value="1"
+                   class="form-check-input" checked>
+            <label class="form-check-label" for="remember">จำฉันไว้ 30 วัน</label>
+          </div>
+          <button type="submit" class="btn btn-primary btn-lg w-100">
             <i class="bi bi-box-arrow-in-right me-1"></i>เข้าสู่ระบบ
           </button>
         </form>

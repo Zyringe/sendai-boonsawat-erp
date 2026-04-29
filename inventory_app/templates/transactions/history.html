@@ -37,7 +37,7 @@
     <span class="text-subtle small">พบ <strong class="text-main">{{ total | fmt_qty }}</strong> รายการ</span>
   </div>
   <div class="table-responsive">
-    <table class="table mb-0">
+    <table class="table table-mobile-cards mb-0">
       <thead>
         <tr>
           <th>วันที่/เวลา</th><th>SKU</th><th>ชื่อสินค้า</th>
@@ -48,23 +48,24 @@
       <tbody>
         {% for t in txns %}
         <tr>
-          <td class="font-mono text-subtle">{{ t.created_at[:16] }}</td>
-          <td><span class="badge badge-gray">{{ t.sku }}</span></td>
-          <td>
+          <td data-label="วันที่" class="font-mono text-subtle">{{ t.created_at[:16] }}</td>
+          <td data-label="SKU" class="td-hide-mobile"><span class="badge badge-gray">{{ t.sku }}</span></td>
+          <td class="td-primary">
             <a href="{{ url_for('products.product_detail', product_id=t.product_id) }}"
                class="text-decoration-none text-main">{{ t.product_name }}</a>
+            <span class="d-mobile-only badge badge-gray ms-1">{{ t.sku }}</span>
           </td>
-          <td class="text-center">
+          <td data-label="ประเภท" class="text-center">
             {% if t.txn_type == 'IN' %}<span class="badge badge-in">รับเข้า</span>
             {% elif t.txn_type == 'OUT' %}<span class="badge badge-out">จ่ายออก</span>
             {% else %}<span class="badge badge-adjust">ปรับยอด</span>{% endif %}
           </td>
-          <td class="text-end fw-600 {% if t.quantity_change > 0 %}text-success{% else %}text-danger{% endif %}">
+          <td data-label="จำนวน" class="text-end fw-600 {% if t.quantity_change > 0 %}text-success{% else %}text-danger{% endif %}">
             {% if t.quantity_change > 0 %}+{% endif %}{{ t.quantity_change | fmt_qty }}
           </td>
-          <td class="text-subtle small">{{ t.unit_type }}</td>
-          <td>{{ doc_link(t.reference_no) }}</td>
-          <td class="text-subtle small">{{ t.note or '' }}</td>
+          <td data-label="หน่วย" class="text-subtle small">{{ t.unit_type }}</td>
+          <td data-label="เอกสาร">{{ doc_link(t.reference_no) }}</td>
+          <td data-label="หมายเหตุ" class="text-subtle small">{{ t.note or '—' }}</td>
         </tr>
         {% else %}
         <tr><td colspan="8" class="text-center text-subtle py-5">ไม่พบรายการ</td></tr>

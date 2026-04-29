@@ -91,7 +91,7 @@
     <span class="text-subtle small">พบ <strong class="text-main">{{ total | fmt_qty }}</strong> รายการ</span>
   </div>
   <div class="table-responsive">
-    <table class="table mb-0">
+    <table class="table table-mobile-cards mb-0">
       <thead>
         <tr>
           <th>วันที่</th><th>เลขที่เอกสาร</th><th>สินค้า</th>
@@ -103,12 +103,12 @@
       <tbody>
         {% for r in rows %}
         <tr>
-          <td class="font-mono text-subtle">{{ r.date_iso }}</td>
-          <td class="font-mono small">
+          <td data-label="วันที่" class="font-mono text-subtle">{{ r.date_iso }}</td>
+          <td data-label="เอกสาร" class="font-mono small">
             <a href="{{ url_for('sales_doc', doc_base=r.doc_no.rsplit('-',1)[0]) }}"
                class="text-decoration-none text-main">{{ r.doc_no.rsplit('-',1)[0] }}</a>
           </td>
-          <td>
+          <td class="td-primary">
             {% if r.product_id %}
               <a href="{{ url_for('products.product_detail', product_id=r.product_id) }}"
                  class="text-decoration-none text-main">{{ r.display_name }}</a>
@@ -118,16 +118,16 @@
               </span>
             {% endif %}
           </td>
-          <td class="text-subtle small">{{ r.customer or '–' }}</td>
-          <td class="text-center">
+          <td data-label="ลูกค้า" class="text-subtle small">{{ r.customer or '–' }}</td>
+          <td data-label="VAT" class="text-center">
             {% if r.vat_type == 1 %}<span class="badge badge-success">รวม VAT</span>
             {% elif r.vat_type == 2 %}<span class="badge badge-info">แยก VAT</span>
             {% else %}<span class="badge badge-gray">ยกเว้น</span>{% endif %}
           </td>
-          <td class="text-end small">{{ r.qty | fmt_qty }} {{ r.unit }}</td>
-          <td class="text-end small">{{ r.unit_price | fmt_price }}</td>
-          <td class="text-end small text-danger">{{ r.discount or '–' }}</td>
-          <td class="text-end fw-600">{{ r.net | fmt_price }}</td>
+          <td data-label="จำนวน" class="text-end small">{{ r.qty | fmt_qty }} {{ r.unit }}</td>
+          <td data-label="ราคา/หน่วย" class="text-end small">{{ r.unit_price | fmt_price }}</td>
+          <td data-label="ส่วนลด" class="text-end small text-danger">{{ r.discount or '–' }}</td>
+          <td data-label="ยอดสุทธิ" class="text-end fw-600">{{ r.net | fmt_price }}</td>
         </tr>
         {% else %}
         <tr><td colspan="9" class="text-center text-subtle py-5">ยังไม่มีข้อมูลการขาย</td></tr>
