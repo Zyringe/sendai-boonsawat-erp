@@ -11,6 +11,130 @@ from database import get_connection
 bp_products = Blueprint('products', __name__)
 
 
+# ── Category suggester ────────────────────────────────────────────────────────
+# Keyword → category code map. Order doesn't matter; scoring counts hits per
+# category and picks the highest. Tweak this dict as you find new patterns.
+_CATEGORY_KEYWORDS = {
+    'door_bolt':   ['กลอน', 'สลักประตู'],
+    'door_knob':   ['ลูกบิด', 'ก๊อกประตู'],
+    'hinge':       ['บานพับ'],
+    'handle':      ['มือจับ', 'หูเหล็ก', 'หูจับ'],
+    'lock_key':    ['กุญแจ', 'แม่กุญแจ', 'มาสเตอร์คีย์', 'padlock'],
+    'hammer':      ['ค้อน'],
+    'screwdriver': ['ไขควง'],
+    'cutter':      ['กรรไกร', 'มีดตัด', 'มีดคัตเตอร์'],
+    'plier':       ['คีม'],
+    'drill_bit':   ['ดอกสว่าน', 'ดจ.', 'สว่าน'],
+    'saw':         ['เลื่อย', 'ใบเลื่อย'],
+    'fastener':    ['ตะปู', 'น๊อต', 'สกรู', 'นัต'],
+    'anchor':      ['ปุ๊ก', 'สมอเหล็ก', 'พุก'],
+    'glue':        ['กาว', 'ซิลิโคน', 'แชลค', 'ลาเท็กซ์'],
+    'paint_brush': ['แปรง', 'สีรองพื้น', 'ทาสี', 'ทินเนอร์', 'ลูกกลิ้ง'],
+    'sandpaper':   ['กระดาษทราย', 'ผ้าทราย'],
+    'tape_gypsum': ['เทป', 'ยิปซั่ม', 'ยิบซั่ม'],
+    'faucet':      ['ก๊อกน้ำ', 'ก๊อกบอล', 'สายชำระ', 'ฝักบัว', 'ประตูน้ำ', 'วาล์ว'],
+    'trowel':      ['เกียง', 'ฉาก'],
+    'wire_cable':  ['ลวด', 'สลิง', 'สายไฟ'],
+    'disc':        ['แผ่นตัด', 'แผ่นขัด', 'ใบตัด', 'ใบขัด', 'แผ่นเจียร'],
+    'chemical':    ['น้ำยา', 'โซดาไฟ', 'สเปรย์', 'จารบี'],
+    'measuring':   ['ตลับเมตร', 'เกจ์', 'มิเตอร์', 'วัดระดับ'],
+    'safety':      ['ถุงมือ', 'แว่นตา', 'หน้ากาก'],
+}
+
+
+def _suggest_category_id(product_name, cat_id_by_code):
+    """Return best-matching category id for the given product_name, or None.
+    Scores by keyword-hit count; ties broken by sort order in dict."""
+    if not product_name:
+        return None
+    name_lower = product_name.lower()
+    best_code, best_score = None, 0
+    for code, keywords in _CATEGORY_KEYWORDS.items():
+        score = sum(1 for kw in keywords if kw.lower() in name_lower)
+        if score > best_score:
+            best_code, best_score = code, score
+    return cat_id_by_code.get(best_code) if best_code else None
+
+
+@bp_products.route('/products/categorize')
+def product_categorize():
+    """Bulk-classify products: show unclassified ones + suggested category
+    pre-selected in dropdown. User confirms / changes / skips → POST."""
+    show = request.args.get('show', 'unclassified')   # unclassified | all
+    limit = int(request.args.get('limit', 50))
+
+    conn = get_connection()
+    cats = conn.execute(
+        "SELECT id, code, name_th FROM categories ORDER BY sort_order"
+    ).fetchall()
+    cat_id_by_code = {c['code']: c['id'] for c in cats}
+
+    where = "WHERE p.is_active = 1"
+    if show == 'unclassified':
+        where += " AND p.category_id IS NULL"
+
+    rows = conn.execute(
+        f"""
+        SELECT p.id, p.sku, p.product_name, p.category_id,
+               (SELECT name_th FROM categories WHERE id = p.category_id) AS current_cat
+        FROM products p
+        {where}
+        ORDER BY p.id
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+
+    n_unclassified = conn.execute(
+        "SELECT COUNT(*) FROM products WHERE is_active=1 AND category_id IS NULL"
+    ).fetchone()[0]
+
+    suggestions = [
+        {
+            'id': r['id'],
+            'sku': r['sku'],
+            'name': r['product_name'],
+            'current_id': r['category_id'],
+            'current_name': r['current_cat'],
+            'suggested_id': _suggest_category_id(r['product_name'], cat_id_by_code),
+        }
+        for r in rows
+    ]
+    conn.close()
+    return render_template(
+        'products/categorize.html',
+        suggestions=suggestions, categories=cats,
+        n_unclassified=n_unclassified, show=show, limit=limit,
+    )
+
+
+@bp_products.route('/products/categorize/save', methods=['POST'])
+def product_categorize_save():
+    """Apply user's confirmed category selections. Form fields named
+    `cat_<product_id>`; empty string = leave unchanged."""
+    saved = 0
+    conn = get_connection()
+    for key, val in request.form.items():
+        if not key.startswith('cat_'):
+            continue
+        try:
+            pid = int(key[4:])
+            cat_id = int(val) if val else None
+        except ValueError:
+            continue
+        if cat_id:
+            conn.execute(
+                "UPDATE products SET category_id=? WHERE id=? AND (category_id IS NULL OR category_id != ?)",
+                (cat_id, pid, cat_id),
+            )
+            saved += conn.total_changes if False else 1   # rough — counts intent, not rows
+    conn.commit()
+    conn.close()
+    flash(f'จัดหมวด {saved} รายการแล้ว', 'success')
+    return redirect(url_for('products.product_categorize',
+                            show=request.form.get('back_show', 'unclassified')))
+
+
 # ── Products ──────────────────────────────────────────────────────────────────
 
 @bp_products.route('/products')

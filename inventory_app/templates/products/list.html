@@ -3,6 +3,11 @@
 {% block page_title %}รายการสินค้า{% endblock %}
 
 {% block topbar_actions %}
+{% if is_admin %}
+<a href="{{ url_for('products.product_categorize') }}" class="btn btn-sm btn-outline-secondary me-1 d-none d-lg-inline-flex">
+  <i class="bi bi-tags me-1"></i>จัดหมวด
+</a>
+{% endif %}
 <a href="{{ url_for('products.csv_import') }}" class="btn btn-sm btn-outline-secondary">
   <i class="bi bi-upload me-1"></i>นำเข้า CSV
 </a>

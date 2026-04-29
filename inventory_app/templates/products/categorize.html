@@ -1,0 +1,115 @@
+{% extends 'base.html' %}
+{% block title %}จัดหมวดสินค้า – ERP{% endblock %}
+{% block page_title %}จัดหมวดสินค้า{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+  <div class="card-body py-3">
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+      <div class="text-subtle small">
+        ยังไม่จัดหมวด: <strong class="text-danger">{{ n_unclassified }}</strong> รายการ
+      </div>
+      <div class="ms-auto d-flex gap-2">
+        <a href="{{ url_for('products.product_categorize', show='unclassified') }}"
+           class="btn btn-sm {% if show == 'unclassified' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+          ยังไม่จัดหมวด
+        </a>
+        <a href="{{ url_for('products.product_categorize', show='all') }}"
+           class="btn btn-sm {% if show == 'all' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+          ทั้งหมด
+        </a>
+        <a href="{{ url_for('products.product_list') }}"
+           class="btn btn-sm btn-outline-secondary">← กลับสินค้า</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if suggestions %}
+<form method="post" action="{{ url_for('products.product_categorize_save') }}">
+  <input type="hidden" name="back_show" value="{{ show }}">
+  <div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span>{{ suggestions|length }} รายการ {% if show == 'unclassified' %}(ยังไม่จัดหมวด){% endif %}</span>
+      <div class="d-flex gap-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="resetAll()">
+          ล้างที่เลือก
+        </button>
+        <button type="submit" class="btn btn-sm btn-primary">
+          <i class="bi bi-check-lg me-1"></i>บันทึกที่เลือก
+        </button>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table mb-0 table-hover">
+        <thead>
+          <tr>
+            <th style="width:70px">SKU</th>
+            <th>ชื่อสินค้า</th>
+            <th style="width:280px">หมวดหมู่</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for s in suggestions %}
+          <tr>
+            <td><span class="badge badge-gray font-mono">{{ s.sku }}</span></td>
+            <td>
+              <a href="{{ url_for('products.product_detail', product_id=s.id) }}"
+                 class="text-decoration-none text-main" target="_blank">{{ s.name }}</a>
+              {% if s.current_name %}
+                <span class="badge bg-info-subtle text-info-emphasis ms-2 small">{{ s.current_name }}</span>
+              {% endif %}
+            </td>
+            <td>
+              <select name="cat_{{ s.id }}" class="form-select form-select-sm">
+                <option value="">— ข้าม —</option>
+                {% for c in categories %}
+                  <option value="{{ c.id }}"
+                          {% if s.suggested_id == c.id and not s.current_id %}selected{% endif %}>
+                    {{ c.name_th }}
+                  </option>
+                {% endfor %}
+              </select>
+              {% if s.suggested_id %}
+                <div class="small text-success mt-1">
+                  <i class="bi bi-magic me-1"></i>แนะนำตามชื่อ
+                </div>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="card-footer d-flex justify-content-between align-items-center">
+      <span class="text-subtle small">
+        แสดง {{ suggestions|length }} จาก {{ n_unclassified }} (limit ปัจจุบัน {{ limit }})
+      </span>
+      <div class="d-flex gap-2">
+        <a href="{{ url_for('products.product_categorize', show=show, limit=200) }}"
+           class="btn btn-sm btn-outline-secondary">โหลด 200</a>
+        <button type="submit" class="btn btn-sm btn-primary">
+          <i class="bi bi-check-lg me-1"></i>บันทึก
+        </button>
+      </div>
+    </div>
+  </div>
+</form>
+{% else %}
+<div class="card">
+  <div class="card-body text-center py-5">
+    <i class="bi bi-emoji-smile fs-1 d-block mb-2 opacity-50"></i>
+    <div class="fw-600">ทุกตัวจัดหมวดเรียบร้อยแล้ว</div>
+    <a href="{{ url_for('products.product_list') }}" class="btn btn-primary mt-3">→ กลับสินค้า</a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function resetAll() {
+  document.querySelectorAll('select[name^="cat_"]').forEach(s => s.value = '');
+}
+</script>
+{% endblock %}
