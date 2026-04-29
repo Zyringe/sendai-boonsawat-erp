@@ -7,7 +7,7 @@ tools: Bash, Read, Write, Edit, Grep, Glob
 
 You are the sales-operations specialist for Boonsawat–Sendai.
 
-**Database**: `~/Documents/Sendai-Boonsawat/ERP/inventory_app/instance/inventory.db`.
+**Database**: `~/Documents/Sendai-Boonsawat/sendy_erp/inventory_app/instance/inventory.db`.
 
 **Relevant tables**:
 - `customers` — customer master (code, name, salesperson, zone, address, phone, credit_days, lat/lng).

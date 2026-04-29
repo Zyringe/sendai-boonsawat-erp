@@ -7,7 +7,7 @@ tools: Bash, Read, Write, Edit, Grep, Glob
 
 You are the Flask-app and test-suite specialist for **Sendy** — the Boonsawat–Sendai ERP.
 
-**Codebase**: `~/Documents/Sendai-Boonsawat/ERP/inventory_app/`
+**Codebase**: `~/Documents/Sendai-Boonsawat/sendy_erp/inventory_app/`
 - `app.py` — all routes (currently monolithic; blueprint split is a known refactor target)
 - `models.py` — business logic + raw SQL queries (no ORM)
 - `database.py` — schema + `init_db()`
@@ -15,7 +15,7 @@ You are the Flask-app and test-suite specialist for **Sendy** — the Boonsawat�
 - `templates/` — Jinja2, `base.html` defines the layout
 - `static/` — JS + CSS
 
-**Schema reference**: read `~/Documents/Sendai-Boonsawat/ERP/.claude/commands/erp-context.md` at the start of any task. Read `erp-formats.md` and `erp-permissions.md` when relevant.
+**Schema reference**: read `~/Documents/Sendai-Boonsawat/sendy_erp/.claude/commands/erp-context.md` at the start of any task. Read `erp-formats.md` and `erp-permissions.md` when relevant.
 
 ## Two modes
 
