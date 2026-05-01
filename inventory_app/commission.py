@@ -255,6 +255,26 @@ def get_payouts_for_month(year_month, db_path=None):
     return {r['salesperson_code']: r['paid'] for r in rows}
 
 
+def get_invoice_payouts_for_sp(year_month, salesperson_code, db_path=None):
+    """Map of {invoice_no: total_paid_amount} for one salesperson in a month.
+
+    Sum of all commission_payouts rows that carry invoice_no for this
+    (sp, month). Rows without invoice_no (legacy month-level payouts) are
+    NOT included here — those are handled separately at the month level.
+    """
+    conn = _connect(db_path)
+    rows = conn.execute("""
+        SELECT invoice_no, ROUND(SUM(amount_paid), 2) AS paid
+          FROM commission_payouts
+         WHERE year_month = ?
+           AND salesperson_code = ?
+           AND invoice_no IS NOT NULL
+         GROUP BY invoice_no
+    """, (year_month, salesperson_code)).fetchall()
+    conn.close()
+    return {r['invoice_no']: r['paid'] for r in rows}
+
+
 def get_payout_history(year_month=None, salesperson_code=None, db_path=None):
     """Return raw commission_payouts rows, sorted newest-first."""
     conn = _connect(db_path)
@@ -279,16 +299,17 @@ def get_payout_history(year_month=None, salesperson_code=None, db_path=None):
 
 
 def record_payout(year_month, salesperson_code, amount_paid,
-                  paid_date, paid_method='', note='', paid_by='', db_path=None):
+                  paid_date, paid_method='', note='', paid_by='',
+                  invoice_no=None, db_path=None):
     """Insert one commission_payouts row. Returns the new row id."""
     conn = _connect(db_path)
     cur = conn.execute("""
         INSERT INTO commission_payouts
             (year_month, salesperson_code, amount_paid, paid_date,
-             paid_method, note, paid_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+             paid_method, note, paid_by, invoice_no)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, (year_month, salesperson_code, amount_paid, paid_date,
-          paid_method or None, note or None, paid_by or None))
+          paid_method or None, note or None, paid_by or None, invoice_no))
     conn.commit()
     new_id = cur.lastrowid
     conn.close()
@@ -392,6 +413,83 @@ def get_invoices_for_salesperson(year_month, salesperson_code, db_path=None):
 
     conn.close()
     out.sort(key=lambda r: (r['date_iso'] or '', r['doc_no']), reverse=True)
+    return out
+
+
+def get_invoice_commission_for_sp(year_month, salesperson_code, db_path=None):
+    """Per-invoice commission for one salesperson in a month.
+
+    For each invoice the salesperson collected this month:
+        commission_due  = own_net × tier.rate_own_pct + third_net × tier.rate_third_pct
+        (BASE rates only — Tier B's above-threshold bonus is handled at
+         month level, not allocated per invoice.)
+
+    Returns list of dicts sorted by date desc:
+      invoice_no, receipt_no, receipt_date, customer_name,
+      own_net, third_net, total_net,
+      commission_due, paid_amount, remaining, paid_status
+    """
+    lines = get_lines_for_salesperson(year_month, salesperson_code, db_path)
+
+    # Group by invoice_no, aggregating own/third nets
+    inv = {}
+    for ln in lines:
+        v = inv.setdefault(ln['invoice_no'], {
+            'invoice_no':   ln['invoice_no'],
+            'receipt_no':   ln['receipt_no'],
+            'receipt_date': ln['receipt_date'],
+            'customer_name': ln['customer_name'],
+            'own_net':      0.0,
+            'third_net':    0.0,
+        })
+        if ln['brand_kind'] == 'own':
+            v['own_net'] += ln['line_net'] or 0
+        else:
+            v['third_net'] += ln['line_net'] or 0
+
+    # Tier rates (use base rates for per-invoice — bonus handled at month level)
+    conn = _connect(db_path)
+    tier_rates = conn.execute("""
+        SELECT t.rate_own_pct, t.rate_third_pct, t.threshold_amount,
+               t.above_rate_own_pct, t.above_rate_third_pct
+          FROM commission_assignments a
+          JOIN commission_tiers t ON t.id = a.tier_id
+         WHERE a.salesperson_code = ?
+    """, (salesperson_code,)).fetchone()
+    if tier_rates:
+        rate_own = (tier_rates['rate_own_pct'] or 0) / 100.0
+        rate_third = (tier_rates['rate_third_pct'] or 0) / 100.0
+    else:
+        rate_own = rate_third = 0.0
+    conn.close()
+
+    paid_map = get_invoice_payouts_for_sp(year_month, salesperson_code, db_path)
+
+    out = []
+    for v in inv.values():
+        commission_due = round(v['own_net'] * rate_own + v['third_net'] * rate_third, 2)
+        total_net = round(v['own_net'] + v['third_net'], 2)
+        paid = paid_map.get(v['invoice_no'], 0.0)
+        remaining = round(commission_due - paid, 2)
+        if commission_due == 0:
+            status = 'no_rate'
+        elif paid >= commission_due - 0.01:
+            status = 'paid'
+        elif paid > 0:
+            status = 'partial'
+        else:
+            status = 'pending'
+        out.append({
+            **v,
+            'own_net':        round(v['own_net'], 2),
+            'third_net':      round(v['third_net'], 2),
+            'total_net':      total_net,
+            'commission_due': commission_due,
+            'paid_amount':    paid,
+            'remaining':      remaining,
+            'paid_status':    status,
+        })
+    out.sort(key=lambda r: (r['receipt_date'] or '', r['invoice_no']), reverse=True)
     return out
 
 

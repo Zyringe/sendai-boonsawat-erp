@@ -1564,23 +1564,67 @@ def commission_dashboard():
 
 @app.route('/commission/payout', methods=['POST'])
 def commission_record_payout():
-    """Record one (or many — bulk) commission payouts."""
-    year_month = request.form.get('month', '').strip()
-    paid_date  = request.form.get('paid_date') or date.today().isoformat()
-    paid_method = request.form.get('paid_method', '').strip()
-    note       = request.form.get('note', '').strip()
-    paid_by    = session.get('username', '')
+    """Record commission payouts.
 
-    # Bulk mode: form has sp_codes[] + amount per code
+    Two modes:
+    1. Bulk per-invoice — form has invoice_no[] checkbox values, plus a
+       hidden sp_code (one salesperson at a time). Used by the drill-down
+       "tick invoices to mark paid" form. amount per invoice = remaining
+       commission_due (computed by engine, sent as amount_<invoice>).
+    2. Bulk per-salesperson — form has sp_code[] checkbox values, plus
+       per-sp amount field amount_<sp>. Used by the /commission month
+       overview (legacy form, still supported for whole-month payouts
+       without per-invoice tracking).
+    """
+    year_month  = request.form.get('month', '').strip()
+    paid_date   = request.form.get('paid_date') or date.today().isoformat()
+    paid_method = request.form.get('paid_method', '').strip()
+    note        = request.form.get('note', '').strip()
+    paid_by     = session.get('username', '')
+    redirect_to = request.form.get('redirect_to') or url_for('commission_dashboard',
+                                                              month=year_month)
+
+    # Mode 1: per-invoice tick-list
+    inv_list = request.form.getlist('invoice_no')
+    if inv_list:
+        sp_code = request.form.get('sp_code', '').strip()
+        if not sp_code:
+            flash('ขาด sp_code', 'danger')
+            return redirect(redirect_to)
+        inserted = 0
+        for inv in inv_list:
+            amt_raw = request.form.get(f'amount_{inv}', '').strip()
+            if not amt_raw:
+                continue
+            try:
+                amt = float(amt_raw.replace(',', ''))
+            except ValueError:
+                continue
+            if amt <= 0:
+                continue
+            commission_mod.record_payout(
+                year_month=year_month, salesperson_code=sp_code,
+                amount_paid=amt, paid_date=paid_date,
+                paid_method=paid_method, note=note, paid_by=paid_by,
+                invoice_no=inv,
+            )
+            inserted += 1
+        if inserted:
+            flash(f'บันทึกการจ่าย commission แล้ว {inserted} ใบ', 'success')
+        else:
+            flash('ไม่ได้บันทึก (ยอดเป็น 0 หรือว่างเปล่า)', 'warning')
+        return redirect(redirect_to)
+
+    # Mode 2: per-salesperson (legacy month overview form)
     sp_codes = request.form.getlist('sp_code')
     if not sp_codes:
         single = request.form.get('sp_code')
         if single:
             sp_codes = [single]
-
     inserted = 0
     for sp in sp_codes:
-        amt_raw = request.form.get(f'amount_{sp}', '').strip() or request.form.get('amount', '').strip()
+        amt_raw = request.form.get(f'amount_{sp}', '').strip() \
+                  or request.form.get('amount', '').strip()
         if not amt_raw:
             continue
         try:
@@ -1599,7 +1643,7 @@ def commission_record_payout():
         flash(f'บันทึกการจ่าย commission แล้ว {inserted} รายการ', 'success')
     else:
         flash('ไม่ได้บันทึก (เลือกจำนวน + ยอดให้ถูก)', 'warning')
-    return redirect(url_for('commission_dashboard', month=year_month))
+    return redirect(redirect_to)
 
 
 @app.route('/commission/payout/<int:payout_id>/delete', methods=['POST'])
@@ -1672,6 +1716,9 @@ def commission_drilldown(sp_code):
                           (sp_code,)).fetchone()
     conn.close()
     sp_name = sp_row['name'] if sp_row else sp_code
+    # Per-invoice commission for the "tick to mark paid" workflow
+    invoice_commissions = commission_mod.get_invoice_commission_for_sp(
+        year_month, sp_code)
     # All invoices issued in target month for this salesperson (paid + unpaid)
     all_invoices = commission_mod.get_invoices_for_salesperson(year_month, sp_code)
     payouts = commission_mod.get_payout_history(year_month=year_month,
@@ -1681,6 +1728,7 @@ def commission_drilldown(sp_code):
                            sp_code=sp_code, sp_name=sp_name,
                            year_month=year_month, months=months,
                            invoices=invoices, summary=summary,
+                           invoice_commissions=invoice_commissions,
                            all_invoices=all_invoices,
                            payouts=payouts,
                            paid_amount=paid_amount,

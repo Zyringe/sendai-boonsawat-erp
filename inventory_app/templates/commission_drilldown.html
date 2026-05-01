@@ -51,62 +51,161 @@
   </div></div></div>
 </div>
 
-{# ── Quick payout form ──────────────────────────────────────────────────── #}
-{% if summary.total_commission - paid_amount > 0.01 %}
-<div class="card mb-3 border-success">
-  <div class="card-body py-2">
-    <form method="post" action="{{ url_for('commission_record_payout') }}" class="row g-2 align-items-end">
-      <input type="hidden" name="month" value="{{ year_month }}">
-      <input type="hidden" name="sp_code" value="{{ sp_code }}">
-      <div class="col-md-2">
-        <label class="form-label small mb-1">วันที่จ่าย</label>
-        <input type="date" name="paid_date" value="{{ today }}" class="form-control form-control-sm">
-      </div>
-      <div class="col-md-2">
-        <label class="form-label small mb-1">วิธี</label>
-        <select name="paid_method" class="form-select form-select-sm">
-          <option value="">— เลือก —</option>
-          <option value="cash">เงินสด</option>
-          <option value="transfer">โอน</option>
-          <option value="cheque">เช็ค</option>
-        </select>
-      </div>
-      <div class="col-md-2">
-        <label class="form-label small mb-1">ยอด</label>
-        <input type="number" step="0.01" name="amount" value="{{ '%.2f'|format(summary.total_commission - paid_amount) }}"
-               class="form-control form-control-sm font-mono text-end">
-      </div>
-      <div class="col-md-4">
-        <label class="form-label small mb-1">หมายเหตุ</label>
-        <input type="text" name="note" class="form-control form-control-sm" placeholder="optional">
-      </div>
-      <div class="col-md-2">
-        <button type="submit" class="btn btn-success btn-sm w-100">
-          <i class="bi bi-check2-circle"></i> บันทึกการจ่าย
-        </button>
-      </div>
-    </form>
-  </div>
-</div>
-{% endif %}
 {% endif %}
 
 <ul class="nav nav-tabs mb-2" id="dd-tabs">
   <li class="nav-item">
-    <a class="nav-link active" href="#tab-paid" data-bs-toggle="tab">Invoices ที่จ่ายแล้ว ({{ invoices|length }})</a>
+    <a class="nav-link active" href="#tab-pay" data-bs-toggle="tab">
+      <i class="bi bi-check2-square"></i> จ่าย commission ตามใบ ({{ invoice_commissions|length }})
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" href="#tab-detail" data-bs-toggle="tab">รายละเอียด lines</a>
   </li>
   <li class="nav-item">
     <a class="nav-link" href="#tab-all" data-bs-toggle="tab">Invoices ทั้งหมดในเดือน ({{ all_invoices|length }})</a>
   </li>
   <li class="nav-item">
-    <a class="nav-link" href="#tab-payouts" data-bs-toggle="tab">การจ่ายของคนนี้ ({{ payouts|length }})</a>
+    <a class="nav-link" href="#tab-payouts" data-bs-toggle="tab">ประวัติจ่าย ({{ payouts|length }})</a>
   </li>
 </ul>
 
 <div class="tab-content">
 
-  {# ── Tab: paid invoices that contributed commission ───────────────────── #}
-  <div id="tab-paid" class="tab-pane fade show active">
+  {# ── Tab: per-invoice payout tick-list ──────────────────────────────── #}
+  <div id="tab-pay" class="tab-pane fade show active">
+    {% if invoice_commissions %}
+    <form method="post" action="{{ url_for('commission_record_payout') }}" id="invoice-payout-form">
+      <input type="hidden" name="month" value="{{ year_month }}">
+      <input type="hidden" name="sp_code" value="{{ sp_code }}">
+      <input type="hidden" name="redirect_to" value="{{ url_for('commission_drilldown', sp_code=sp_code, month=year_month) }}">
+
+      <div class="card mb-2">
+        <div class="card-body py-2 d-flex flex-wrap align-items-end gap-2">
+          <div>
+            <label class="form-label small mb-1 d-block">วันที่จ่าย</label>
+            <input type="date" name="paid_date" value="{{ today }}" class="form-control form-control-sm">
+          </div>
+          <div>
+            <label class="form-label small mb-1 d-block">วิธี</label>
+            <select name="paid_method" class="form-select form-select-sm">
+              <option value="">— เลือก —</option>
+              <option value="cash">เงินสด</option>
+              <option value="transfer">โอน</option>
+              <option value="cheque">เช็ค</option>
+            </select>
+          </div>
+          <div class="flex-grow-1">
+            <label class="form-label small mb-1 d-block">หมายเหตุ</label>
+            <input type="text" name="note" class="form-control form-control-sm" placeholder="optional">
+          </div>
+          <button type="submit" class="btn btn-success btn-sm">
+            <i class="bi bi-check2-circle"></i> บันทึก commission ที่ติ๊ก
+          </button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead>
+              <tr>
+                <th class="text-center"><input type="checkbox" id="check-all-inv" title="เลือกทั้งหมด"></th>
+                <th>วันที่</th>
+                <th>เลขที่</th>
+                <th>ลูกค้า</th>
+                <th class="text-end">Own</th>
+                <th class="text-end">3rd</th>
+                <th class="text-end">Total net</th>
+                <th class="text-end">Commission</th>
+                <th class="text-end">จ่ายแล้ว</th>
+                <th class="text-end">คงเหลือ</th>
+                <th class="text-center">สถานะ</th>
+                <th class="text-end" style="width:120px">จะจ่าย ฿</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for inv in invoice_commissions %}
+              <tr>
+                <td class="text-center">
+                  {% if inv.remaining > 0.01 %}
+                  <input type="checkbox" name="invoice_no" value="{{ inv.invoice_no }}" class="inv-check">
+                  {% endif %}
+                </td>
+                <td class="font-mono small">{{ inv.receipt_date }}</td>
+                <td class="font-mono"><strong>{{ inv.invoice_no }}</strong></td>
+                <td>{{ inv.customer_name }}</td>
+                <td class="text-end font-mono small">{{ '{:,.2f}'.format(inv.own_net) }}</td>
+                <td class="text-end font-mono small">{{ '{:,.2f}'.format(inv.third_net) }}</td>
+                <td class="text-end font-mono">{{ '{:,.2f}'.format(inv.total_net) }}</td>
+                <td class="text-end font-mono fw-600 text-success">{{ '{:,.2f}'.format(inv.commission_due) }}</td>
+                <td class="text-end font-mono">{{ '{:,.2f}'.format(inv.paid_amount) }}</td>
+                <td class="text-end font-mono {% if inv.remaining > 0.01 %}text-warning fw-600{% else %}text-subtle{% endif %}">
+                  {{ '{:,.2f}'.format(inv.remaining) }}
+                </td>
+                <td class="text-center">
+                  {% if inv.paid_status == 'paid' %}
+                    <span class="badge bg-success">จ่ายแล้ว</span>
+                  {% elif inv.paid_status == 'partial' %}
+                    <span class="badge bg-warning text-dark">บางส่วน</span>
+                  {% elif inv.paid_status == 'no_rate' %}
+                    <span class="badge bg-secondary">no rate</span>
+                  {% else %}
+                    <span class="badge bg-light text-dark">รอจ่าย</span>
+                  {% endif %}
+                </td>
+                <td class="text-end">
+                  {% if inv.remaining > 0.01 %}
+                  <input type="number" step="0.01" min="0"
+                         name="amount_{{ inv.invoice_no }}"
+                         value="{{ '%.2f'|format(inv.remaining) }}"
+                         class="form-control form-control-sm font-mono text-end">
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+              <tr class="table-light">
+                <td colspan="6" class="text-end fw-600">รวม</td>
+                <td class="text-end font-mono fw-600">{{ '{:,.2f}'.format(invoice_commissions|sum(attribute='total_net')) }}</td>
+                <td class="text-end font-mono fw-600 text-success">{{ '{:,.2f}'.format(invoice_commissions|sum(attribute='commission_due')) }}</td>
+                <td class="text-end font-mono fw-600">{{ '{:,.2f}'.format(invoice_commissions|sum(attribute='paid_amount')) }}</td>
+                <td class="text-end font-mono fw-600 text-warning">{{ '{:,.2f}'.format(invoice_commissions|sum(attribute='remaining')) }}</td>
+                <td colspan="2"></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </form>
+
+    <script>
+    (function(){
+      const all = document.getElementById('check-all-inv');
+      if (!all) return;
+      all.addEventListener('change', function(){
+        document.querySelectorAll('.inv-check').forEach(cb => { cb.checked = all.checked; });
+      });
+    })();
+    </script>
+
+    {% if summary and summary.tier_code == 'B' and summary.total_commission > (invoice_commissions|sum(attribute='commission_due')) %}
+    <div class="alert alert-info small mt-3">
+      <i class="bi bi-info-circle"></i>
+      <strong>Tier B threshold bonus:</strong>
+      Commission ของเดือน ({{ '{:,.2f}'.format(summary.total_commission) }}) มีส่วน "เกิน 50K"
+      ที่ไม่ได้แจกลงทุก invoice — ต่างกับยอดรวมของ invoice ({{ '{:,.2f}'.format(invoice_commissions|sum(attribute='commission_due')) }}).
+      ส่วนเกิน {{ '{:,.2f}'.format(summary.total_commission - (invoice_commissions|sum(attribute='commission_due'))) }}
+      ให้บันทึกแยกผ่านหน้า "ประวัติการจ่าย" ก็ได้
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="card"><div class="card-body text-center text-subtle py-5">ไม่มี invoice ที่จ่ายในเดือนนี้</div></div>
+    {% endif %}
+  </div>
+
+  {# ── Tab: line-level detail (existing view) ───────────────────────────── #}
+  <div id="tab-detail" class="tab-pane fade">
     {% for inv in invoices %}
     <div class="card mb-2">
       <div class="card-header py-2 d-flex justify-content-between align-items-center">
@@ -138,7 +237,7 @@
       </div>
     </div>
     {% else %}
-    <div class="card"><div class="card-body text-center text-subtle py-5">ไม่มี invoice ที่จ่ายในเดือนนี้</div></div>
+    <div class="card"><div class="card-body text-center text-subtle py-5">ไม่มี line</div></div>
     {% endfor %}
   </div>
 
