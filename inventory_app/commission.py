@@ -430,6 +430,9 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
     # globally unique, and an invoice paid in month X may have been
     # issued months earlier. The receipt's date is the month-bound
     # axis; the invoice's lines are wherever they live in time.
+    # Look up Sendy product_id via product_code_mapping (BSN/Express share
+    # the same product code system — 99.9% of Express codes are already
+    # mapped). Falls back to NULL only for genuinely unmapped codes.
     rows = conn.execute("""
         SELECT es.product_code,
                es.product_name_raw,
@@ -438,9 +441,9 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
                es.unit_price,
                es.net               AS line_net,
                es.brand_kind,
-               (SELECT id FROM products p WHERE p.product_name = es.product_name_raw LIMIT 1)
-                                    AS sendy_product_id
+               m.product_id         AS sendy_product_id
           FROM express_sales es
+          LEFT JOIN product_code_mapping m ON m.bsn_code = es.product_code
          WHERE es.doc_no = ?
          ORDER BY es.line_no
     """, (invoice_no,)).fetchall()
