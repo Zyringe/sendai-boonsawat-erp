@@ -126,6 +126,65 @@ def deactivate_product(product_id: int):
     conn.close()
 
 
+# ── Brands ──────────────────────────────────────────────────────────────────
+def get_brands():
+    """All brands sorted: own brands first (sort_order, then name)."""
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT id, code, name, name_th, is_own_brand, sort_order
+          FROM brands
+         ORDER BY is_own_brand DESC, sort_order, name
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_brand(brand_id):
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM brands WHERE id = ?", (brand_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def set_product_brand(product_id, brand_id):
+    """Assign (or clear) a brand on a product. Pass None to clear."""
+    conn = get_connection()
+    conn.execute("UPDATE products SET brand_id = ? WHERE id = ?",
+                 (brand_id, product_id))
+    conn.commit()
+    conn.close()
+
+
+def create_brand(name, name_th=None, is_own=False):
+    """Create a new brand row. `code` derived from name (lowercased, words
+    joined by '_'). Returns the new brand id.
+    Raises ValueError if `name` is empty or `code` already exists.
+    """
+    if not name or not name.strip():
+        raise ValueError('ชื่อแบรนด์ว่างเปล่า')
+    name = name.strip()
+    # generate slug-ish code from name
+    import re as _re
+    code_base = _re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
+    if not code_base:
+        # fall back to a numeric suffix from the next id
+        code_base = 'brand'
+    conn = get_connection()
+    code = code_base
+    n = 2
+    while conn.execute('SELECT 1 FROM brands WHERE code = ?', (code,)).fetchone():
+        code = f'{code_base}_{n}'
+        n += 1
+    cur = conn.execute("""
+        INSERT INTO brands (code, name, name_th, is_own_brand, sort_order)
+        VALUES (?, ?, ?, ?, 100)
+    """, (code, name, (name_th or '').strip() or None, 1 if is_own else 0))
+    conn.commit()
+    new_id = cur.lastrowid
+    conn.close()
+    return new_id
+
+
 # ── Alerts ───────────────────────────────────────────────────────────────────
 
 def get_stock_alerts():

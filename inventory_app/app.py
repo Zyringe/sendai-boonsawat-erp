@@ -1680,6 +1680,25 @@ def commission_payouts_list():
                            total=sum(p['amount_paid'] for p in payouts))
 
 
+@app.route('/commission/sp/<sp_code>/invoice/<invoice_no>')
+def commission_invoice_detail(sp_code, invoice_no):
+    year_month = request.args.get('month', '').strip()
+    if not year_month:
+        months = _months_with_payment_activity()
+        year_month = months[0] if months else ''
+    header, lines = commission_mod.get_invoice_line_breakdown(
+        year_month, sp_code, invoice_no)
+    conn = get_connection()
+    sp_row = conn.execute('SELECT name FROM salespersons WHERE code = ?',
+                          (sp_code,)).fetchone()
+    conn.close()
+    sp_name = sp_row['name'] if sp_row else sp_code
+    return render_template('commission_invoice_detail.html',
+                           sp_code=sp_code, sp_name=sp_name,
+                           year_month=year_month,
+                           header=header, lines=lines)
+
+
 @app.route('/commission/sp/<sp_code>')
 def commission_drilldown(sp_code):
     months = _months_with_payment_activity()

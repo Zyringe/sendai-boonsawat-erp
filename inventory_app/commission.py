@@ -416,6 +416,95 @@ def get_invoices_for_salesperson(year_month, salesperson_code, db_path=None):
     return out
 
 
+def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path=None):
+    """Per-line breakdown for one invoice — used by the invoice drill-down
+    "see exactly which product earned which %" view.
+
+    Returns list of dicts with:
+        product_code, product_name_raw, qty, unit, line_net,
+        brand_kind, rate_pct, commission, sendy_product_id
+    plus a header dict describing the invoice + tier rate context.
+    """
+    conn = _connect(db_path)
+    rows = conn.execute("""
+        SELECT es.product_code,
+               es.product_name_raw,
+               es.qty,
+               es.unit,
+               es.unit_price,
+               es.net               AS line_net,
+               es.brand_kind,
+               (SELECT id FROM products p WHERE p.product_name = es.product_name_raw LIMIT 1)
+                                    AS sendy_product_id
+          FROM express_sales es
+          JOIN express_payment_in_invoice_refs ref ON ref.invoice_no = es.doc_no
+          JOIN express_payments_in pin ON pin.id = ref.payment_in_id
+         WHERE pin.salesperson_code = ?
+           AND pin.is_void = 0
+           AND es.doc_no = ?
+           AND es.date_iso BETWEEN ? AND ?
+    """, (salesperson_code, invoice_no, *_month_bounds(year_month))).fetchall()
+
+    # Tier rates
+    tier = conn.execute("""
+        SELECT t.code AS tier_code, t.rate_own_pct, t.rate_third_pct,
+               t.threshold_amount, t.above_rate_own_pct, t.above_rate_third_pct
+          FROM commission_assignments a
+          JOIN commission_tiers t ON t.id = a.tier_id
+         WHERE a.salesperson_code = ?
+    """, (salesperson_code,)).fetchone()
+
+    # Receipt info
+    rcpt = conn.execute("""
+        SELECT pin.doc_no, pin.date_iso, pin.customer_name, pin.cash_amount,
+               pin.cheque_amount, pin.discount_amount
+          FROM express_payment_in_invoice_refs ref
+          JOIN express_payments_in pin ON pin.id = ref.payment_in_id
+         WHERE pin.salesperson_code = ? AND ref.invoice_no = ?
+         LIMIT 1
+    """, (salesperson_code, invoice_no)).fetchone()
+
+    if tier:
+        rate_own = tier['rate_own_pct'] or 0
+        rate_third = tier['rate_third_pct'] or 0
+        tier_code = tier['tier_code']
+    else:
+        rate_own = rate_third = 0
+        tier_code = '?'
+
+    out_rows = []
+    for r in rows:
+        kind = r['brand_kind'] or classify_brand_kind(r['product_name_raw'] or '')
+        rate_pct = rate_own if kind == 'own' else rate_third
+        commission = round((r['line_net'] or 0) * rate_pct / 100.0, 2)
+        out_rows.append({
+            'product_code':     r['product_code'],
+            'product_name_raw': r['product_name_raw'],
+            'qty':              r['qty'],
+            'unit':             r['unit'],
+            'unit_price':       r['unit_price'],
+            'line_net':         r['line_net'],
+            'brand_kind':       kind,
+            'rate_pct':         rate_pct,
+            'commission':       commission,
+            'sendy_product_id': r['sendy_product_id'],
+        })
+
+    header = {
+        'invoice_no': invoice_no,
+        'tier_code': tier_code,
+        'rate_own_pct': rate_own,
+        'rate_third_pct': rate_third,
+        'receipt_no':   rcpt['doc_no'] if rcpt else '',
+        'receipt_date': rcpt['date_iso'] if rcpt else '',
+        'customer_name': rcpt['customer_name'] if rcpt else '',
+        'total_net':    round(sum((r['line_net'] or 0) for r in out_rows), 2),
+        'total_commission': round(sum(r['commission'] for r in out_rows), 2),
+    }
+    conn.close()
+    return header, out_rows
+
+
 def get_invoice_commission_for_sp(year_month, salesperson_code, db_path=None):
     """Per-invoice commission for one salesperson in a month.
 

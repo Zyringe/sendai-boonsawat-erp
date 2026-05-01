@@ -1,0 +1,115 @@
+{% extends 'base.html' %}
+{% block title %}{{ header.invoice_no }} – Commission detail{% endblock %}
+{% block page_title %}{{ header.invoice_no }} — รายละเอียด commission{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2 flex-wrap">
+  <a href="{{ url_for('commission_drilldown', sp_code=sp_code, month=year_month) }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i> กลับ {{ sp_name }}
+  </a>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-3"><div class="card"><div class="card-body">
+    <div class="text-subtle small">เซลส์ / Tier</div>
+    <div class="fw-600">{{ sp_name }} <span class="badge {% if header.tier_code=='A' %}bg-primary{% elif header.tier_code=='B' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">{{ header.tier_code }}</span></div>
+    <div class="text-subtle small mt-1">own {{ header.rate_own_pct }}% / 3rd {{ header.rate_third_pct }}%</div>
+  </div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body">
+    <div class="text-subtle small">ลูกค้า</div>
+    <div class="fw-600">{{ header.customer_name }}</div>
+    <div class="text-subtle small mt-1">รับเงินผ่าน {{ header.receipt_no }} ({{ header.receipt_date }})</div>
+  </div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body">
+    <div class="text-subtle small">ยอดรวม net</div>
+    <div class="fs-4 fw-600 font-mono">{{ '{:,.2f}'.format(header.total_net) }}</div>
+  </div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body">
+    <div class="text-subtle small">Commission ใบนี้</div>
+    <div class="fs-4 fw-600 font-mono text-success">{{ '{:,.2f}'.format(header.total_commission) }}</div>
+  </div></div></div>
+</div>
+
+<div class="card">
+  <div class="card-header py-2">
+    รายการสินค้าในใบ {{ header.invoice_no }}
+    <span class="text-subtle small ms-2">{{ lines|length }} รายการ</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th class="text-center">#</th>
+          <th>สินค้า</th>
+          <th>รหัส Express</th>
+          <th class="text-end">จำนวน</th>
+          <th class="text-end">ราคาต่อหน่วย</th>
+          <th class="text-end">net</th>
+          <th class="text-center">Brand</th>
+          <th class="text-end">rate %</th>
+          <th class="text-end">commission</th>
+          <th class="text-center">แก้แบรนด์</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ln in lines %}
+        <tr>
+          <td class="text-center text-subtle">{{ loop.index }}</td>
+          <td>
+            {% if ln.sendy_product_id %}
+            <a href="{{ url_for('products.product_detail', product_id=ln.sendy_product_id) }}"
+               class="text-reset" title="ไปหน้าสินค้า">
+              {{ ln.product_name_raw }}
+              <i class="bi bi-arrow-up-right small text-muted"></i>
+            </a>
+            {% else %}
+            {{ ln.product_name_raw }}
+            <span class="badge bg-light text-warning small ms-1" title="ยังไม่ map กับสินค้าใน Sendy">no match</span>
+            {% endif %}
+          </td>
+          <td><span class="font-mono small text-subtle">/{{ ln.product_code }}</span></td>
+          <td class="text-end font-mono">{{ '{:,.2f}'.format(ln.qty or 0) }} {{ ln.unit or '' }}</td>
+          <td class="text-end font-mono">{{ '{:,.2f}'.format(ln.unit_price or 0) }}</td>
+          <td class="text-end font-mono">{{ '{:,.2f}'.format(ln.line_net or 0) }}</td>
+          <td class="text-center">
+            <span class="badge {% if ln.brand_kind == 'own' %}bg-primary{% else %}bg-secondary{% endif %}">{{ ln.brand_kind }}</span>
+          </td>
+          <td class="text-end font-mono small">{{ '%.1f'|format(ln.rate_pct) }}%</td>
+          <td class="text-end font-mono fw-600 text-success">{{ '{:,.2f}'.format(ln.commission) }}</td>
+          <td class="text-center">
+            {% if ln.sendy_product_id %}
+            <a href="{{ url_for('products.product_detail', product_id=ln.sendy_product_id) }}#brandModal"
+               class="btn btn-link btn-sm p-0" title="แก้ยี่ห้อในหน้าสินค้า">
+              <i class="bi bi-pencil-square"></i>
+            </a>
+            {% else %}
+            <a href="{{ url_for('products.product_list') }}?q={{ (ln.product_name_raw or '')[:30]|urlencode }}"
+               class="btn btn-link btn-sm p-0 text-warning" title="ค้นหาสินค้าที่ตรง">
+              <i class="bi bi-search"></i>
+            </a>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="10" class="text-center text-subtle py-4">ไม่มี line ในใบนี้</td></tr>
+        {% endfor %}
+        <tr class="table-light">
+          <td colspan="5" class="text-end fw-600">รวม</td>
+          <td class="text-end font-mono fw-600">{{ '{:,.2f}'.format(header.total_net) }}</td>
+          <td colspan="2"></td>
+          <td class="text-end font-mono fw-600 text-success">{{ '{:,.2f}'.format(header.total_commission) }}</td>
+          <td></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="text-subtle small mt-3 px-2">
+  <i class="bi bi-info-circle"></i>
+  ถ้าระบบ classify "Brand" ผิด → กดปุ่ม
+  <i class="bi bi-pencil-square"></i> เพื่อไปหน้าสินค้า → แก้ยี่ห้อ →
+  รัน <code>scripts/load_brand_map.py /path/to/brand.csv</code>
+  เพื่อ refresh brand_kind cache (หรือลบและ import sales ใหม่ก็ได้)
+</div>
+{% endblock %}

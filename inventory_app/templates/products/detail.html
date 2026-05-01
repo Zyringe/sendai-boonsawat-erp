@@ -4,11 +4,11 @@
 {% block page_title %}{{ product.product_name }}{% endblock %}
 
 {% block topbar_actions %}
+{% if is_admin %}
 <a href="{{ url_for('labels_view') }}?add={{ product.id }}" class="btn btn-sm btn-outline-secondary"
    onclick="event.preventDefault(); addToLabelQueue(this.href);">
   <i class="bi bi-upc-scan me-1"></i>พิมพ์ป้าย
 </a>
-{% if is_admin %}
 <a href="{{ url_for('products.product_edit', product_id=product.id) }}" class="btn btn-sm btn-outline-secondary">
   <i class="bi bi-pencil me-1"></i>แก้ไข
 </a>
@@ -127,6 +127,24 @@
           <tbody>
             <tr><td class="text-subtle" style="width:45%">SKU</td>
                 <td><span class="badge badge-gray font-mono">{{ product.sku }}</span></td></tr>
+            <tr>
+              <td class="text-subtle">ยี่ห้อ</td>
+              <td>
+                {% if current_brand %}
+                  <span class="badge {% if current_brand.is_own_brand %}bg-primary{% else %}bg-secondary{% endif %}">
+                    {{ current_brand.name }}{% if current_brand.name_th %} ({{ current_brand.name_th }}){% endif %}
+                  </span>
+                {% else %}
+                  <span class="text-subtle">—</span>
+                {% endif %}
+                {% if is_admin or is_manager %}
+                <button type="button" class="btn btn-link btn-sm p-0 ms-1"
+                        data-bs-toggle="modal" data-bs-target="#brandModal" title="แก้ไขยี่ห้อ">
+                  <i class="bi bi-pencil-square small"></i>
+                </button>
+                {% endif %}
+              </td>
+            </tr>
             <tr><td class="text-subtle">หน่วย</td><td>{{ product.unit_type }}</td></tr>
             <tr><td class="text-subtle">บรรจุ/ลัง</td><td>{{ product.units_per_carton or '–' }}</td></tr>
             <tr><td class="text-subtle">บรรจุ/กล่อง</td><td>{{ product.units_per_box or '–' }}</td></tr>
@@ -205,6 +223,65 @@
       </div>
 
       {% if current_role in ('admin', 'manager', 'staff') %}
+      {# ── Brand picker modal ───────────────────────────────────────────── #}
+      <div class="modal fade" id="brandModal" tabindex="-1">
+        <div class="modal-dialog">
+          <form method="post" action="{{ url_for('products.product_set_brand', product_id=product.id) }}" class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">เลือกยี่ห้อ</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <label class="form-label small">ยี่ห้อ</label>
+                <select name="brand_id" class="form-select" id="brand-select">
+                  <option value="__none__" {% if not current_brand %}selected{% endif %}>— ไม่ระบุ —</option>
+                  <optgroup label="Own brands">
+                    {% for b in brands if b.is_own_brand %}
+                    <option value="{{ b.id }}" {% if current_brand and current_brand.id == b.id %}selected{% endif %}>
+                      {{ b.name }}{% if b.name_th %} ({{ b.name_th }}){% endif %}
+                    </option>
+                    {% endfor %}
+                  </optgroup>
+                  <optgroup label="Third-party">
+                    {% for b in brands if not b.is_own_brand %}
+                    <option value="{{ b.id }}" {% if current_brand and current_brand.id == b.id %}selected{% endif %}>
+                      {{ b.name }}{% if b.name_th %} ({{ b.name_th }}){% endif %}
+                    </option>
+                    {% endfor %}
+                  </optgroup>
+                  <option value="__new__">+ เพิ่มยี่ห้อใหม่…</option>
+                </select>
+              </div>
+              <div id="new-brand-fields" class="border rounded p-2 bg-light" style="display:none">
+                <label class="form-label small">ชื่อยี่ห้อใหม่</label>
+                <input type="text" name="new_brand_name" class="form-control form-control-sm mb-2" placeholder="เช่น MyBrand">
+                <label class="form-label small">ชื่อภาษาไทย (optional)</label>
+                <input type="text" name="new_brand_name_th" class="form-control form-control-sm mb-2" placeholder="เช่น แบรนด์ของฉัน">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" name="new_brand_is_own" id="new-brand-own">
+                  <label class="form-check-label small" for="new-brand-own">เป็นแบรนด์ของบริษัท (own brand → ใช้ rate own)</label>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
+              <button type="submit" class="btn btn-primary">บันทึก</button>
+            </div>
+          </form>
+        </div>
+      </div>
+      <script>
+      (function(){
+        const sel = document.getElementById('brand-select');
+        const fields = document.getElementById('new-brand-fields');
+        if (!sel) return;
+        const update = () => { fields.style.display = sel.value === '__new__' ? '' : 'none'; };
+        sel.addEventListener('change', update);
+        update();
+      })();
+      </script>
+
       <div class="modal fade" id="locationModal" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered modal-sm">
           <div class="modal-content">

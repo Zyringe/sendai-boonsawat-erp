@@ -215,6 +215,8 @@ def product_detail(product_id):
     txn_pages = (txn_total + per_page - 1) // per_page
     locations = models.get_product_locations(product_id)
     bsn_pricing = models.get_product_pricing_summary(product_id)
+    brands = models.get_brands()
+    current_brand = models.get_brand(product['brand_id']) if product['brand_id'] else None
     return render_template('products/detail.html',
                            product=product,
                            promotions=promotions,
@@ -225,7 +227,42 @@ def product_detail(product_id):
                            txn_pages=txn_pages,
                            txn_total=txn_total,
                            locations=locations,
-                           bsn_pricing=bsn_pricing)
+                           bsn_pricing=bsn_pricing,
+                           brands=brands,
+                           current_brand=current_brand)
+
+
+@bp_products.route('/products/<int:product_id>/brand', methods=['POST'])
+def product_set_brand(product_id):
+    if not models.get_product(product_id):
+        abort(404)
+    raw = request.form.get('brand_id', '').strip()
+    new_brand_name = request.form.get('new_brand_name', '').strip()
+    new_brand_name_th = request.form.get('new_brand_name_th', '').strip()
+    new_brand_is_own = bool(request.form.get('new_brand_is_own'))
+
+    brand_id = None
+    if raw == '__new__' and new_brand_name:
+        try:
+            brand_id = models.create_brand(new_brand_name,
+                                            name_th=new_brand_name_th,
+                                            is_own=new_brand_is_own)
+            flash(f'เพิ่มแบรนด์ "{new_brand_name}" แล้ว', 'success')
+        except ValueError as e:
+            flash(f'เพิ่มแบรนด์ไม่สำเร็จ: {e}', 'danger')
+            return redirect(url_for('products.product_detail', product_id=product_id))
+    elif raw == '__none__' or raw == '':
+        brand_id = None
+    else:
+        try:
+            brand_id = int(raw)
+        except ValueError:
+            flash('brand_id ผิดรูป', 'danger')
+            return redirect(url_for('products.product_detail', product_id=product_id))
+
+    models.set_product_brand(product_id, brand_id)
+    flash('อัปเดตแบรนด์เรียบร้อย', 'success')
+    return redirect(url_for('products.product_detail', product_id=product_id))
 
 
 @bp_products.route('/products/<int:product_id>/cost-history')
