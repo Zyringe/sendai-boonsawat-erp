@@ -1,0 +1,123 @@
+{% extends 'base.html' %}
+{% block title %}AR – {{ customer_name }}{% endblock %}
+{% block page_title %}AR — {{ customer_name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center gap-3 mb-4 flex-wrap">
+  <a href="{{ url_for('express_ar_dashboard') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>กลับ AR
+  </a>
+  <div>
+    <div class="fw-bold fs-5">{{ customer_name }}</div>
+    <div class="text-subtle small">
+      <span class="badge badge-gray font-mono">{{ customer_code }}</span>
+      {% if customer_type %}<span class="ms-2">{{ customer_type }}</span>{% endif %}
+      {% if salesperson_code %}
+      <span class="ms-2">เซลส์ <span class="badge badge-gray font-mono">{{ salesperson_code }}</span></span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="ms-auto text-end">
+    <div class="text-subtle small">snapshot: {{ snapshot_date or '—' }}</div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-3"><div class="card"><div class="card-body">
+    <div class="text-subtle small">บิลค้างชำระ</div>
+    <div class="fs-4 fw-600 font-mono">{{ rows|length }} ใบ</div>
+  </div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body">
+    <div class="text-subtle small">ยอดบิลรวม</div>
+    <div class="fs-4 fw-600 font-mono">{{ '{:,.2f}'.format(total_billed) }}</div>
+  </div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body">
+    <div class="text-subtle small">ยอดคงค้าง</div>
+    <div class="fs-4 fw-600 font-mono text-danger">{{ '{:,.2f}'.format(total_outstanding) }}</div>
+  </div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body">
+    <div class="text-subtle small">เก่าสุด</div>
+    <div class="fs-5 fw-600 font-mono">{{ oldest_date }}</div>
+  </div></div></div>
+</div>
+
+<h5 class="mt-3 mb-2 px-1"><i class="bi bi-receipt text-danger me-2"></i>บิลค้างชำระ</h5>
+<div class="card mb-4">
+  <div class="table-responsive">
+    <table class="table table-mobile-cards mb-0 table-hover">
+      <thead>
+        <tr>
+          <th>เลขที่</th>
+          <th class="text-center">วันที่</th>
+          <th class="text-center">อายุ (วัน)</th>
+          <th class="text-end">ยอดบิล</th>
+          <th class="text-end">จ่ายแล้ว</th>
+          <th class="text-end">คงค้าง</th>
+          <th class="text-center">flags</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td data-label="เลขที่" class="font-mono"><strong>{{ r.doc_no }}</strong></td>
+          <td data-label="วันที่" class="text-center font-mono small">{{ r.doc_date_iso }}</td>
+          <td data-label="อายุ" class="text-center small {% if r.age_days and r.age_days > 60 %}text-danger fw-600{% elif r.age_days and r.age_days > 30 %}text-warning{% endif %}">
+            {{ r.age_days or '—' }}
+          </td>
+          <td data-label="ยอดบิล" class="text-end font-mono">{{ '{:,.2f}'.format(r.bill_amount or 0) }}</td>
+          <td data-label="จ่ายแล้ว" class="text-end font-mono">{{ '{:,.2f}'.format(r.paid_amount or 0) }}</td>
+          <td data-label="คงค้าง" class="text-end font-mono fw-600 text-danger">{{ '{:,.2f}'.format(r.outstanding_amount or 0) }}</td>
+          <td data-label="flags" class="text-center">
+            {% if r.is_anomalous %}<span class="badge bg-warning text-dark me-1" title="ใบเสร็จไม่เรียบร้อย">!</span>{% endif %}
+            {% if r.has_warning %}<span class="badge bg-danger" title="warning">***</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-subtle py-4">ไม่พบบิลค้างของลูกค้านี้</td></tr>
+        {% endfor %}
+        <tr class="table-light">
+          <td colspan="3" class="text-end fw-600">รวม</td>
+          <td class="text-end font-mono fw-600">{{ '{:,.2f}'.format(total_billed) }}</td>
+          <td></td>
+          <td class="text-end font-mono fw-600 text-danger">{{ '{:,.2f}'.format(total_outstanding) }}</td>
+          <td></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if recent_payments %}
+<h5 class="mt-4 mb-2 px-1"><i class="bi bi-cash-coin text-success me-2"></i>การจ่ายล่าสุด ({{ recent_payments|length }} รายการ)</h5>
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-mobile-cards mb-0 table-hover">
+      <thead>
+        <tr>
+          <th>เลขที่ใบเสร็จ</th>
+          <th class="text-center">วันที่</th>
+          <th class="text-end">เงินสด</th>
+          <th class="text-end">เช็ค</th>
+          <th class="text-end">ส่วนลด</th>
+          <th class="text-center">เซลส์</th>
+          <th>หมายเหตุ</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in recent_payments %}
+        <tr>
+          <td data-label="เลขที่" class="font-mono">{{ p.doc_no }}</td>
+          <td data-label="วันที่" class="text-center font-mono small">{{ p.date_iso }}</td>
+          <td data-label="เงินสด" class="text-end font-mono">{{ '{:,.2f}'.format(p.cash_amount or 0) }}</td>
+          <td data-label="เช็ค" class="text-end font-mono">{{ '{:,.2f}'.format(p.cheque_amount or 0) }}</td>
+          <td data-label="ส่วนลด" class="text-end font-mono small text-success">{{ '{:,.2f}'.format(p.discount_amount or 0) }}</td>
+          <td data-label="เซลส์" class="text-center"><span class="badge badge-gray font-mono">{{ p.salesperson_code or '—' }}</span></td>
+          <td data-label="หมายเหตุ" class="small text-subtle" style="white-space:pre-wrap">{{ p.note or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

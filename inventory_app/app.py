@@ -1890,6 +1890,63 @@ def express_ar_dashboard():
                            search=search, sort=sort)
 
 
+@app.route('/express/ar/customer/<customer_code>')
+def express_ar_customer(customer_code):
+    """Per-customer AR drill-down — all unpaid invoices in the latest snapshot."""
+    conn = get_connection()
+    snapshot = conn.execute(
+        "SELECT MAX(snapshot_date_iso) AS d FROM express_ar_outstanding"
+    ).fetchone()
+    snapshot_date = snapshot['d'] if snapshot else None
+
+    rows = conn.execute("""
+        SELECT customer_code, customer_name, customer_type, salesperson_code,
+               doc_no, doc_date_iso, bill_amount, paid_amount, outstanding_amount,
+               is_anomalous, has_warning,
+               CAST(julianday('now') - julianday(doc_date_iso) AS INTEGER) AS age_days
+          FROM express_ar_outstanding
+         WHERE snapshot_date_iso = ?
+           AND customer_code = ?
+         ORDER BY doc_date_iso ASC
+    """, (snapshot_date, customer_code)).fetchall()
+
+    if not rows:
+        flash(f'ไม่พบลูกหนี้รหัส {customer_code}', 'warning')
+        return redirect(url_for('express_ar_dashboard'))
+
+    customer_name = rows[0]['customer_name']
+    customer_type = rows[0]['customer_type']
+    salesperson_code = rows[0]['salesperson_code']
+    total_outstanding = sum((r['outstanding_amount'] or 0) for r in rows)
+    total_billed = sum((r['bill_amount'] or 0) for r in rows)
+    oldest = min((r['doc_date_iso'] or '9999-12-31') for r in rows)
+
+    # Pull recent payment history (เฉพาะลูกค้านี้)
+    recent_payments = conn.execute("""
+        SELECT pin.doc_no, pin.date_iso,
+               pin.cash_amount, pin.cheque_amount, pin.discount_amount,
+               pin.salesperson_code, pin.note
+          FROM express_payments_in pin
+         WHERE pin.is_void = 0
+           AND pin.customer_id = ?
+         ORDER BY pin.date_iso DESC
+         LIMIT 20
+    """, (customer_code,)).fetchall()
+    conn.close()
+
+    return render_template('express_ar_customer.html',
+                           customer_code=customer_code,
+                           customer_name=customer_name,
+                           customer_type=customer_type,
+                           salesperson_code=salesperson_code,
+                           snapshot_date=snapshot_date,
+                           rows=[dict(r) for r in rows],
+                           recent_payments=[dict(r) for r in recent_payments],
+                           total_outstanding=total_outstanding,
+                           total_billed=total_billed,
+                           oldest_date=oldest)
+
+
 @app.route('/express/ap')
 def express_ap_dashboard():
     """AP supplier-payment view from express_payments_out."""

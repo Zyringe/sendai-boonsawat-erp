@@ -79,11 +79,20 @@
       <tbody>
         {% for r in rows %}
         <tr>
-          <td class="td-primary fw-500">{{ r.customer_name }}
+          <td class="td-primary fw-500">
+            <a href="{{ url_for('express_ar_customer', customer_code=r.customer_code) }}"
+               class="text-reset text-decoration-none" title="ดูบิลค้างของลูกค้านี้">
+              {{ r.customer_name }}
+            </a>
             {% if r.is_anomalous %}<span class="badge bg-warning text-dark ms-1" title="ใบเสร็จไม่เรียบร้อย">!</span>{% endif %}
             {% if r.has_warning %}<span class="badge bg-danger ms-1">***</span>{% endif %}
           </td>
-          <td data-label="รหัส"><span class="badge badge-gray font-mono">{{ r.customer_code }}</span></td>
+          <td data-label="รหัส">
+            <a href="{{ url_for('express_ar_customer', customer_code=r.customer_code) }}"
+               class="text-reset text-decoration-none">
+              <span class="badge badge-gray font-mono">{{ r.customer_code }}</span>
+            </a>
+          </td>
           <td data-label="ประเภท" class="text-center text-subtle small">{{ r.customer_type }}</td>
           <td data-label="เซลส์" class="text-center"><span class="badge badge-gray font-mono">{{ r.salesperson_code or '—' }}</span></td>
           <td data-label="เอกสาร" class="font-mono">{{ r.doc_no }}</td>
