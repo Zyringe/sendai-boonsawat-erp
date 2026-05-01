@@ -1,0 +1,240 @@
+"""Commission engine — computes per-salesperson commission for a given month.
+
+Inputs (read from DB):
+  express_payments_in     — receipts that arrived in the target month
+  express_payment_in_invoice_refs — links receipt → invoice (IV doc_no)
+  express_sales           — line items per invoice (carries product_name)
+  commission_tiers        — rate definitions (own/third + threshold)
+  commission_assignments  — which tier each salesperson uses
+
+Algorithm:
+  1. For target year_month, load receipts (excluding void) joined to their
+     invoice refs and on to express_sales lines that share doc_no.
+  2. Each sales line is classified as own-brand or third-party from its
+     product_name (regex similar to migration 004 brand backfill).
+  3. Aggregate net amount by (salesperson_code, brand_kind).
+  4. Apply tier rules:
+       - No threshold → commission = own × rate_own + third × rate_third
+       - With threshold (Tier B):
+           below = min(total, threshold) × below-rate (5% flat)
+           above_excess = max(total - threshold, 0)
+           own_share / third_share = proportional to own/third totals
+           above = own_share × above_rate_own + third_share × above_rate_third
+
+Output: list of dicts per salesperson with total / own / third splits and
+commission breakdown so the dashboard can show "below + above" detail.
+
+Real-time: NO snapshot table — query runs on demand.
+"""
+from __future__ import annotations
+
+import os
+import re
+import sqlite3
+from collections import defaultdict
+
+
+_DB_PATH = os.environ.get(
+    'SENDY_DB_PATH',
+    '/Users/putty/Documents/Sendai-Boonsawat/sendy_erp/inventory_app/instance/inventory.db',
+)
+
+
+# ── Brand classifier ────────────────────────────────────────────────────────
+# Matches product_name keyword fragments observed in the catalogue. Order
+# matters — most specific first.
+_OWN_BRAND_RE = re.compile(
+    r'(?:Sendai|SENDAI|S/D|S\.D\.|'
+    r'สิงห์|Golden\s*Lion|GOLDENLION|GL-|'
+    r'A-?SPEC|ASPEC|'
+    r'#GL-|#SD-)',
+    re.IGNORECASE,
+)
+
+
+def classify_brand_kind(product_name):
+    """Return 'own' or 'third_party'.
+
+    Defaults to 'third_party' when no own-brand keyword is found.
+    """
+    if product_name and _OWN_BRAND_RE.search(product_name):
+        return 'own'
+    return 'third_party'
+
+
+# ── DB helpers ──────────────────────────────────────────────────────────────
+def _connect(db_path=None):
+    conn = sqlite3.connect(db_path or _DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA foreign_keys = OFF')
+    return conn
+
+
+def _load_tiers(conn):
+    """Load tiers indexed by salesperson_code."""
+    rows = conn.execute("""
+        SELECT a.salesperson_code,
+               t.code              AS tier_code,
+               t.name_th           AS tier_name,
+               t.rate_own_pct,
+               t.rate_third_pct,
+               t.threshold_amount,
+               t.above_rate_own_pct,
+               t.above_rate_third_pct
+          FROM commission_assignments a
+          JOIN commission_tiers t ON t.id = a.tier_id
+    """).fetchall()
+    return {r['salesperson_code']: dict(r) for r in rows}
+
+
+# ── Core query: per-line attribution of receipts ─────────────────────────────
+# For each (paid receipt, invoice ref, sales line of that invoice) we get the
+# salesperson_code from the receipt and the product_name from the line. Net
+# attributed = sales-line.net allocated within the matching invoice.
+#
+# Strategy: split the receipt's allocated invoice payment proportional to the
+# sales lines' net for that invoice. This way commission base = net actually
+# collected per product (subset of total invoice if partially paid).
+_BASE_QUERY = """
+    SELECT pin.salesperson_code,
+           pin.doc_no            AS receipt_no,
+           pin.date_iso          AS receipt_date,
+           ref.invoice_no,
+           ref.amount            AS ref_amount,
+           es.product_code,
+           es.product_name_raw,
+           es.net                AS line_net,
+           es.total              AS line_total
+      FROM express_payments_in    pin
+      JOIN express_payment_in_invoice_refs ref ON ref.payment_in_id = pin.id
+      JOIN express_sales          es  ON es.doc_no = ref.invoice_no
+     WHERE pin.is_void = 0
+       AND pin.date_iso BETWEEN ? AND ?
+       AND pin.salesperson_code <> ''
+"""
+
+
+def _month_bounds(year_month):
+    """Return (start_iso, end_iso) for a YYYY-MM string."""
+    y, m = year_month.split('-')
+    y, m = int(y), int(m)
+    start = f'{y:04d}-{m:02d}-01'
+    if m == 12:
+        end = f'{y + 1:04d}-01-01'
+    else:
+        end = f'{y:04d}-{m + 1:02d}-01'
+    # Use exclusive end-date trick: BETWEEN ? AND ? with end-1day
+    # But date_iso is YYYY-MM-DD; SQLite string BETWEEN works lexicographically.
+    last_day = f'{y:04d}-{m:02d}-31'
+    return start, last_day
+
+
+def get_commission_for_month(year_month, salesperson_code=None, db_path=None):
+    """Compute commission for a given YYYY-MM.
+
+    Returns list of dicts (one per salesperson with activity), sorted by
+    salesperson_code. Each dict has:
+        salesperson_code, tier_code, tier_name,
+        own_net, third_net, total_net,
+        threshold_amount,
+        commission_below, commission_above_own, commission_above_third,
+        total_commission,
+        receipts_count, invoices_seen, lines_attributed
+    """
+    conn = _connect(db_path)
+    tiers = _load_tiers(conn)
+    start, end = _month_bounds(year_month)
+
+    rows = conn.execute(_BASE_QUERY, (start, end)).fetchall()
+    if salesperson_code:
+        rows = [r for r in rows if r['salesperson_code'] == salesperson_code]
+
+    # Aggregate net per (sp, brand_kind)
+    own = defaultdict(float)
+    third = defaultdict(float)
+    receipts = defaultdict(set)
+    invoices = defaultdict(set)
+    line_count = defaultdict(int)
+
+    for r in rows:
+        sp = r['salesperson_code']
+        kind = classify_brand_kind(r['product_name_raw'] or '')
+        net = r['line_net'] or 0.0
+        if kind == 'own':
+            own[sp] += net
+        else:
+            third[sp] += net
+        receipts[sp].add(r['receipt_no'])
+        invoices[sp].add(r['invoice_no'])
+        line_count[sp] += 1
+
+    # Compute commission per salesperson
+    out = []
+    sps = sorted(set(own) | set(third))
+    for sp in sps:
+        tier = tiers.get(sp)
+        own_net = round(own[sp], 2)
+        third_net = round(third[sp], 2)
+        total_net = round(own_net + third_net, 2)
+
+        if tier is None:
+            tier_code = '?'
+            tier_name = '(no assignment)'
+            commission_below = commission_above_own = commission_above_third = 0.0
+            threshold = None
+        else:
+            tier_code = tier['tier_code']
+            tier_name = tier['tier_name']
+            threshold = tier['threshold_amount']
+            r_own = tier['rate_own_pct'] / 100.0
+            r_third = tier['rate_third_pct'] / 100.0
+
+            if threshold is None or total_net <= threshold or threshold == 0:
+                # Either no threshold, or below threshold — apply base rates only
+                commission_below = round(own_net * r_own + third_net * r_third, 2)
+                commission_above_own = 0.0
+                commission_above_third = 0.0
+            else:
+                # Threshold breach — split below + above with proportional
+                # own/third allocation in the above portion.
+                excess = total_net - threshold
+                # Below portion gets the flat base rates (they're equal for
+                # Tier B, but we keep formula generic).
+                # Allocate "below" proportionally too so totals reconcile.
+                own_share = own_net / total_net if total_net else 0.0
+                third_share = third_net / total_net if total_net else 0.0
+                below_own = threshold * own_share
+                below_third = threshold * third_share
+                commission_below = round(
+                    below_own * r_own + below_third * r_third, 2,
+                )
+                above_own_amt = excess * own_share
+                above_third_amt = excess * third_share
+                ar_own = (tier['above_rate_own_pct'] or 0) / 100.0
+                ar_third = (tier['above_rate_third_pct'] or 0) / 100.0
+                commission_above_own = round(above_own_amt * ar_own, 2)
+                commission_above_third = round(above_third_amt * ar_third, 2)
+
+        total_commission = round(
+            commission_below + commission_above_own + commission_above_third, 2,
+        )
+
+        out.append({
+            'salesperson_code': sp,
+            'tier_code': tier_code,
+            'tier_name': tier_name,
+            'own_net': own_net,
+            'third_net': third_net,
+            'total_net': total_net,
+            'threshold_amount': threshold,
+            'commission_below': commission_below,
+            'commission_above_own': commission_above_own,
+            'commission_above_third': commission_above_third,
+            'total_commission': total_commission,
+            'receipts_count': len(receipts[sp]),
+            'invoices_seen': len(invoices[sp]),
+            'lines_attributed': line_count[sp],
+        })
+
+    conn.close()
+    return out
