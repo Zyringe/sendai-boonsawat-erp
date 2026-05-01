@@ -4,114 +4,165 @@
 
 {% block content %}
 <div class="card mb-3">
-  <div class="card-body py-2">
-    <form method="get" class="row g-2 align-items-end">
-      <div class="col-auto">
-        <label class="form-label small mb-1">เดือน</label>
-        <select name="month" class="form-select form-select-sm" onchange="this.form.submit()">
-          {% for m in months %}
-          <option value="{{ m }}" {% if m == year_month %}selected{% endif %}>{{ m }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-auto ms-auto">
-        <a href="{{ url_for('commission_export', month=year_month) }}"
-           class="btn btn-outline-primary btn-sm">
-          <i class="bi bi-download"></i> Export CSV
-        </a>
-      </div>
+  <div class="card-body py-2 d-flex flex-wrap align-items-end gap-2">
+    <form method="get" class="d-inline">
+      <label class="form-label small mb-1 d-block">เดือน</label>
+      <select name="month" class="form-select form-select-sm" onchange="this.form.submit()">
+        {% for m in months %}
+        <option value="{{ m }}" {% if m == year_month %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select>
     </form>
+    <div class="ms-auto d-flex gap-2">
+      <a href="{{ url_for('commission_payouts_list', month=year_month) }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-clock-history"></i> ประวัติการจ่าย
+      </a>
+      <a href="{{ url_for('commission_export', month=year_month) }}" class="btn btn-sm btn-outline-primary">
+        <i class="bi bi-download"></i> Export CSV
+      </a>
+    </div>
   </div>
 </div>
 
 {# ── Summary cards ───────────────────────────────────────────────────────── #}
 <div class="row g-3 mb-3">
-  <div class="col-md-4">
-    <div class="card">
-      <div class="card-body">
-        <div class="text-subtle small">ยอดเก็บได้รวม (net)</div>
-        <div class="fs-4 fw-600 font-mono">{{ '{:,.2f}'.format(summary.total_collected_net or 0) }}</div>
-      </div>
+  <div class="col-md-3"><div class="card"><div class="card-body">
+    <div class="text-subtle small">เก็บได้รวม (net)</div>
+    <div class="fs-4 fw-600 font-mono">{{ '{:,.2f}'.format(summary.total_collected_net or 0) }}</div>
+  </div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body">
+    <div class="text-subtle small">Commission ค้างจ่าย</div>
+    <div class="fs-4 fw-600 font-mono text-success">{{ '{:,.2f}'.format(summary.total_commission or 0) }}</div>
+  </div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body">
+    <div class="text-subtle small">จ่ายแล้ว</div>
+    <div class="fs-4 fw-600 font-mono text-primary">{{ '{:,.2f}'.format(summary.total_paid or 0) }}</div>
+  </div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body">
+    <div class="text-subtle small">คงเหลือ</div>
+    <div class="fs-4 fw-600 font-mono {% if summary.total_remaining > 0 %}text-warning{% else %}text-subtle{% endif %}">
+      {{ '{:,.2f}'.format(summary.total_remaining or 0) }}
     </div>
-  </div>
-  <div class="col-md-4">
-    <div class="card">
-      <div class="card-body">
-        <div class="text-subtle small">Commission ค้างจ่ายรวม</div>
-        <div class="fs-4 fw-600 font-mono text-success">{{ '{:,.2f}'.format(summary.total_commission or 0) }}</div>
-      </div>
-    </div>
-  </div>
-  <div class="col-md-4">
-    <div class="card">
-      <div class="card-body">
-        <div class="text-subtle small">เซลส์ที่ผ่าน threshold</div>
-        <div class="fs-4 fw-600 font-mono">{{ summary.breached_threshold or 0 }} คน</div>
-      </div>
-    </div>
-  </div>
+  </div></div></div>
 </div>
 
-{# ── Per-salesperson breakdown ───────────────────────────────────────────── #}
-<div class="card">
-  <div class="table-responsive">
-    <table class="table table-mobile-cards mb-0 table-hover">
-      <thead>
-        <tr>
-          <th>เซลส์</th>
-          <th class="text-center">Tier</th>
-          <th class="text-end">Own (Sendai/GL/A-SPEC)</th>
-          <th class="text-end">3rd-party</th>
-          <th class="text-end">Total net</th>
-          <th class="text-end">Comm. ก่อน threshold</th>
-          <th class="text-end">Comm. ส่วนเกิน</th>
-          <th class="text-end">รวม commission</th>
-          <th class="text-center">Receipts</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in rows %}
-        <tr {% if r.tier_code == 'C' and r.total_net == 0 %}class="text-subtle"{% endif %}>
-          <td class="td-primary fw-500">
-            <a href="{{ url_for('commission_drilldown', sp_code=r.salesperson_code, month=year_month) }}" class="text-reset text-decoration-none">
-              {{ r.salesperson_name or r.salesperson_code }}
-              <span class="d-mobile-only badge badge-gray font-mono ms-1">{{ r.salesperson_code }}</span>
-              <i class="bi bi-chevron-right small text-subtle"></i>
-            </a>
-          </td>
-          <td data-label="Tier" class="text-center">
-            <span class="badge {% if r.tier_code == 'A' %}bg-primary
-                                {% elif r.tier_code == 'B' %}bg-warning text-dark
-                                {% else %}bg-secondary{% endif %}">{{ r.tier_code }}</span>
-          </td>
-          <td data-label="Own" class="text-end font-mono">{{ '{:,.2f}'.format(r.own_net) }}</td>
-          <td data-label="3rd-party" class="text-end font-mono">{{ '{:,.2f}'.format(r.third_net) }}</td>
-          <td data-label="Total net" class="text-end font-mono fw-600">
-            {{ '{:,.2f}'.format(r.total_net) }}
-            {% if r.threshold_amount and r.total_net > r.threshold_amount %}
-            <i class="bi bi-arrow-up-right text-success" title="ผ่าน {{ '{:,.0f}'.format(r.threshold_amount) }}"></i>
-            {% endif %}
-          </td>
-          <td data-label="Comm. ก่อน" class="text-end font-mono">{{ '{:,.2f}'.format(r.commission_below) }}</td>
-          <td data-label="Comm. ส่วนเกิน" class="text-end font-mono">
-            {{ '{:,.2f}'.format(r.commission_above_own + r.commission_above_third) }}
-          </td>
-          <td data-label="รวม commission" class="text-end font-mono fw-600 text-success">
-            {{ '{:,.2f}'.format(r.total_commission) }}
-          </td>
-          <td data-label="Receipts" class="text-center text-subtle small">{{ r.receipts_count }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="9" class="text-center text-subtle py-4">ไม่มีข้อมูลในเดือนนี้</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+{# ── Per-salesperson breakdown + bulk pay form ───────────────────────────── #}
+<form method="post" action="{{ url_for('commission_record_payout') }}" id="payout-form">
+  <input type="hidden" name="month" value="{{ year_month }}">
+
+  <div class="card mb-2">
+    <div class="card-body py-2 d-flex flex-wrap align-items-end gap-2">
+      <div>
+        <label class="form-label small mb-1 d-block">วันที่จ่าย</label>
+        <input type="date" name="paid_date" value="{{ today }}" class="form-control form-control-sm">
+      </div>
+      <div>
+        <label class="form-label small mb-1 d-block">วิธีจ่าย</label>
+        <select name="paid_method" class="form-select form-select-sm">
+          <option value="">— เลือก —</option>
+          <option value="cash">เงินสด</option>
+          <option value="transfer">โอน</option>
+          <option value="cheque">เช็ค</option>
+        </select>
+      </div>
+      <div class="flex-grow-1">
+        <label class="form-label small mb-1 d-block">หมายเหตุ</label>
+        <input type="text" name="note" class="form-control form-control-sm" placeholder="optional">
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">
+        <i class="bi bi-check2-circle"></i> บันทึกที่ติ๊ก
+      </button>
+    </div>
   </div>
-</div>
+
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table table-mobile-cards mb-0 table-hover">
+        <thead>
+          <tr>
+            <th class="text-center"><input type="checkbox" id="check-all" title="เลือกทั้งหมด"></th>
+            <th>เซลส์</th>
+            <th class="text-center">Tier</th>
+            <th class="text-end">Own</th>
+            <th class="text-end">3rd-party</th>
+            <th class="text-end">Total net</th>
+            <th class="text-end">รวม commission</th>
+            <th class="text-end">จ่ายแล้ว</th>
+            <th class="text-end">คงเหลือ</th>
+            <th class="text-center">สถานะ</th>
+            <th class="text-end" style="width:110px">จะจ่าย ฿</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr {% if r.tier_code == 'C' and r.total_net == 0 %}class="text-subtle"{% endif %}>
+            <td class="text-center">
+              {% if r.remaining > 0.01 %}
+              <input type="checkbox" name="sp_code" value="{{ r.salesperson_code }}" class="row-check">
+              {% endif %}
+            </td>
+            <td class="td-primary fw-500">
+              <a href="{{ url_for('commission_drilldown', sp_code=r.salesperson_code, month=year_month) }}" class="text-reset text-decoration-none">
+                {{ r.salesperson_name or r.salesperson_code }}
+                <span class="d-mobile-only badge badge-gray font-mono ms-1">{{ r.salesperson_code }}</span>
+                <i class="bi bi-chevron-right small text-subtle"></i>
+              </a>
+            </td>
+            <td data-label="Tier" class="text-center">
+              <span class="badge {% if r.tier_code == 'A' %}bg-primary{% elif r.tier_code == 'B' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">{{ r.tier_code }}</span>
+            </td>
+            <td data-label="Own" class="text-end font-mono">{{ '{:,.2f}'.format(r.own_net) }}</td>
+            <td data-label="3rd-party" class="text-end font-mono">{{ '{:,.2f}'.format(r.third_net) }}</td>
+            <td data-label="Total net" class="text-end font-mono fw-600">{{ '{:,.2f}'.format(r.total_net) }}
+              {% if r.threshold_amount and r.total_net > r.threshold_amount %}<i class="bi bi-arrow-up-right text-success" title="ผ่าน threshold"></i>{% endif %}
+            </td>
+            <td data-label="รวม commission" class="text-end font-mono fw-600 text-success">{{ '{:,.2f}'.format(r.total_commission) }}</td>
+            <td data-label="จ่ายแล้ว" class="text-end font-mono">{{ '{:,.2f}'.format(r.paid_amount) }}</td>
+            <td data-label="คงเหลือ" class="text-end font-mono {% if r.remaining > 0.01 %}text-warning fw-600{% else %}text-subtle{% endif %}">
+              {{ '{:,.2f}'.format(r.remaining) }}
+            </td>
+            <td data-label="สถานะ" class="text-center">
+              {% if r.payout_status == 'paid' %}
+                <span class="badge bg-success">จ่ายครบ</span>
+              {% elif r.payout_status == 'partial' %}
+                <span class="badge bg-warning text-dark">บางส่วน</span>
+              {% elif r.payout_status == 'pending' %}
+                <span class="badge bg-secondary">รอจ่าย</span>
+              {% else %}
+                <span class="text-subtle small">—</span>
+              {% endif %}
+            </td>
+            <td data-label="จะจ่าย" class="text-end">
+              {% if r.remaining > 0.01 %}
+              <input type="number" step="0.01" min="0"
+                     name="amount_{{ r.salesperson_code }}"
+                     value="{{ '%.2f'|format(r.remaining) }}"
+                     class="form-control form-control-sm font-mono text-end">
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="11" class="text-center text-subtle py-4">ไม่มีข้อมูลในเดือนนี้</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</form>
+
+<script>
+(function () {
+  const all = document.getElementById('check-all');
+  if (!all) return;
+  all.addEventListener('change', function () {
+    document.querySelectorAll('.row-check').forEach(cb => { cb.checked = all.checked; });
+  });
+})();
+</script>
 
 <div class="text-subtle small mt-3 px-2">
   <i class="bi bi-info-circle"></i>
-  Tier A = 10% own / 5% third (no threshold). Tier B = 5% flat ถึง 50,000 แล้วเป็น 10/5% ในส่วนเกิน. Tier C = 0% (รอ Put ตัดสินใจ).
-  Brand classification ใช้ regex จาก product_name (Sendai/GL-/A-SPEC/S/D/สิงห์ → own).
+  ติ๊กเซลส์ที่ต้องการจ่าย → กำหนดยอด (default = คงเหลือ) → กดปุ่ม "บันทึกที่ติ๊ก"
+  ดูประวัติทั้งหมดที่ <a href="{{ url_for('commission_payouts_list', month=year_month) }}">ประวัติการจ่าย</a>
 </div>
 {% endblock %}

@@ -241,6 +241,160 @@ def get_commission_for_month(year_month, salesperson_code=None, db_path=None):
     return out
 
 
+# ── Payouts ─────────────────────────────────────────────────────────────────
+def get_payouts_for_month(year_month, db_path=None):
+    """Map of {salesperson_code: total_paid_amount} for the given month."""
+    conn = _connect(db_path)
+    rows = conn.execute("""
+        SELECT salesperson_code, ROUND(SUM(amount_paid), 2) AS paid
+          FROM commission_payouts
+         WHERE year_month = ?
+         GROUP BY salesperson_code
+    """, (year_month,)).fetchall()
+    conn.close()
+    return {r['salesperson_code']: r['paid'] for r in rows}
+
+
+def get_payout_history(year_month=None, salesperson_code=None, db_path=None):
+    """Return raw commission_payouts rows, sorted newest-first."""
+    conn = _connect(db_path)
+    where = []
+    params = []
+    if year_month:
+        where.append('year_month = ?')
+        params.append(year_month)
+    if salesperson_code:
+        where.append('salesperson_code = ?')
+        params.append(salesperson_code)
+    where_sql = ('WHERE ' + ' AND '.join(where)) if where else ''
+    rows = conn.execute(f"""
+        SELECT id, year_month, salesperson_code, amount_paid,
+               paid_date, paid_method, note, paid_by, created_at
+          FROM commission_payouts
+          {where_sql}
+         ORDER BY paid_date DESC, id DESC
+    """, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def record_payout(year_month, salesperson_code, amount_paid,
+                  paid_date, paid_method='', note='', paid_by='', db_path=None):
+    """Insert one commission_payouts row. Returns the new row id."""
+    conn = _connect(db_path)
+    cur = conn.execute("""
+        INSERT INTO commission_payouts
+            (year_month, salesperson_code, amount_paid, paid_date,
+             paid_method, note, paid_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (year_month, salesperson_code, amount_paid, paid_date,
+          paid_method or None, note or None, paid_by or None))
+    conn.commit()
+    new_id = cur.lastrowid
+    conn.close()
+    return new_id
+
+
+def delete_payout(payout_id, db_path=None):
+    conn = _connect(db_path)
+    conn.execute('DELETE FROM commission_payouts WHERE id = ?', (payout_id,))
+    conn.commit()
+    conn.close()
+
+
+# ── All-invoices view (paid + unpaid) for one salesperson ───────────────────
+def get_invoices_for_salesperson(year_month, salesperson_code, db_path=None):
+    """Return invoices issued in target month "owned by" this salesperson.
+
+    Ownership = the receipt that paid this invoice was collected by sp,
+                OR the open AR row tagged to sp.
+    Each row carries paid_status: 'paid' / 'unpaid' / 'partial'.
+    """
+    conn = _connect(db_path)
+    start, end = _month_bounds(year_month)
+
+    # Aggregate sales lines per invoice in target month
+    invoice_rows = conn.execute("""
+        SELECT s.doc_no,
+               s.doc_type,
+               s.date_iso,
+               s.customer_code,
+               s.customer_name,
+               ROUND(SUM(s.net), 2)   AS total_net,
+               ROUND(SUM(s.total), 2) AS total_gross,
+               COUNT(*)               AS lines
+          FROM express_sales s
+         WHERE s.date_iso BETWEEN ? AND ?
+           AND s.doc_type IN ('IV','HS')
+         GROUP BY s.doc_no
+    """, (start, end)).fetchall()
+
+    # Map invoice_no → who paid it (receipt collector)
+    paid_by_sp = {r['invoice_no']: (r['salesperson_code'], r['receipt_no'], r['amount'])
+                  for r in conn.execute("""
+        SELECT ref.invoice_no, pin.salesperson_code, pin.doc_no AS receipt_no, ref.amount
+          FROM express_payment_in_invoice_refs ref
+          JOIN express_payments_in pin ON pin.id = ref.payment_in_id
+         WHERE pin.is_void = 0
+    """).fetchall()}
+
+    # Map invoice_no → outstanding info (currently unpaid)
+    open_ar = {r['doc_no']: dict(r) for r in conn.execute("""
+        SELECT doc_no, salesperson_code, outstanding_amount
+          FROM express_ar_outstanding
+         WHERE snapshot_date_iso = (SELECT MAX(snapshot_date_iso) FROM express_ar_outstanding)
+    """).fetchall()}
+
+    out = []
+    for r in invoice_rows:
+        inv = r['doc_no']
+        owning_sp = ''
+        paid_status = 'paid'  # default — paid in full; reduce if AR open
+        receipt_no = ''
+        outstanding = 0.0
+
+        if inv in paid_by_sp:
+            owning_sp, receipt_no, _ = paid_by_sp[inv]
+        if inv in open_ar:
+            outstanding = open_ar[inv]['outstanding_amount'] or 0
+            if not owning_sp:
+                owning_sp = open_ar[inv]['salesperson_code'] or ''
+            if outstanding >= (r['total_net'] or 0) * 0.99:
+                paid_status = 'unpaid'
+            elif outstanding > 0:
+                paid_status = 'partial'
+
+        if not owning_sp:
+            # Fall back to customer's salesperson if known
+            cust_sp = conn.execute(
+                'SELECT salesperson FROM customers WHERE code = ?',
+                (r['customer_code'] or '',)
+            ).fetchone()
+            if cust_sp and cust_sp['salesperson']:
+                owning_sp = cust_sp['salesperson']
+
+        if owning_sp != salesperson_code:
+            continue
+
+        out.append({
+            'doc_no': inv,
+            'doc_type': r['doc_type'],
+            'date_iso': r['date_iso'],
+            'customer_code': r['customer_code'],
+            'customer_name': r['customer_name'],
+            'total_net': r['total_net'] or 0.0,
+            'total_gross': r['total_gross'] or 0.0,
+            'lines': r['lines'],
+            'paid_status': paid_status,
+            'outstanding_amount': outstanding,
+            'receipt_no': receipt_no,
+        })
+
+    conn.close()
+    out.sort(key=lambda r: (r['date_iso'] or '', r['doc_no']), reverse=True)
+    return out
+
+
 def get_lines_for_salesperson(year_month, salesperson_code, db_path=None):
     """Return per-line detail for one salesperson in a month.
 

@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+{% block title %}ประวัติการจ่าย Commission – ERP{% endblock %}
+{% block page_title %}ประวัติการจ่าย Commission{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-md-2">
+        <label class="form-label small mb-1">เดือน</label>
+        <select name="month" class="form-select form-select-sm">
+          <option value="">— ทุกเดือน —</option>
+          {% for m in months %}
+          <option value="{{ m }}" {% if m == year_month %}selected{% endif %}>{{ m }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small mb-1">เซลส์</label>
+        <select name="sp" class="form-select form-select-sm">
+          <option value="">— ทุกคน —</option>
+          {% for s in salespersons %}
+          <option value="{{ s.code }}" {% if s.code == sp_code %}selected{% endif %}>{{ s.code }} — {{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-primary btn-sm">ดู</button>
+      </div>
+      <div class="col-auto ms-auto align-self-center">
+        <a href="{{ url_for('commission_dashboard', month=year_month or '') }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-arrow-left"></i> กลับ Commission
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body py-2 d-flex">
+    <div>
+      <div class="text-subtle small">รวมที่จ่าย</div>
+      <div class="fs-4 fw-600 font-mono text-primary">{{ '{:,.2f}'.format(total or 0) }}</div>
+    </div>
+    <div class="ms-auto text-subtle small align-self-center">
+      {{ payouts|length }} รายการ
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-mobile-cards mb-0 table-hover">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>เดือน</th>
+          <th>เซลส์</th>
+          <th class="text-end">ยอด</th>
+          <th class="text-center">วันที่จ่าย</th>
+          <th class="text-center">วิธี</th>
+          <th>หมายเหตุ</th>
+          <th class="text-center">บันทึกโดย</th>
+          <th class="text-center">เวลา</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in payouts %}
+        <tr>
+          <td>{{ p.id }}</td>
+          <td><span class="badge bg-light text-dark font-mono">{{ p.year_month }}</span></td>
+          <td><span class="font-mono">{{ p.salesperson_code }}</span></td>
+          <td class="text-end font-mono fw-600 text-primary">{{ '{:,.2f}'.format(p.amount_paid) }}</td>
+          <td class="text-center font-mono small">{{ p.paid_date }}</td>
+          <td class="text-center small">{{ p.paid_method or '—' }}</td>
+          <td class="small text-subtle">{{ p.note or '' }}</td>
+          <td class="text-center small text-subtle">{{ p.paid_by or '—' }}</td>
+          <td class="text-center small text-subtle">{{ p.created_at }}</td>
+          <td class="text-end">
+            <form method="post" action="{{ url_for('commission_delete_payout', payout_id=p.id) }}"
+                  onsubmit="return confirm('ลบรายการจ่าย {{ p.amount_paid }} ของ {{ p.salesperson_code }} {{ p.year_month }}?')">
+              <button class="btn btn-link text-danger btn-sm p-0"><i class="bi bi-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="10" class="text-center text-subtle py-4">ไม่มีประวัติการจ่าย</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

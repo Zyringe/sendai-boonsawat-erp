@@ -1532,16 +1532,108 @@ def commission_dashboard():
             })
     full_rows.sort(key=lambda r: -r['total_net'])
 
+    # Layer in paid-amount per salesperson for the month
+    paid_map = commission_mod.get_payouts_for_month(year_month)
+    for r in full_rows:
+        paid = paid_map.get(r['salesperson_code'], 0.0)
+        r['paid_amount'] = paid
+        r['remaining'] = round((r['total_commission'] or 0) - paid, 2)
+        if r['total_commission'] and paid >= r['total_commission'] - 0.01:
+            r['payout_status'] = 'paid'
+        elif paid > 0:
+            r['payout_status'] = 'partial'
+        elif r['total_commission'] and r['total_commission'] > 0:
+            r['payout_status'] = 'pending'
+        else:
+            r['payout_status'] = 'none'
+
     summary = {
         'total_collected_net': sum(r['total_net'] for r in full_rows),
         'total_commission':    sum(r['total_commission'] for r in full_rows),
+        'total_paid':          sum(r['paid_amount'] for r in full_rows),
+        'total_remaining':     sum(r['remaining'] for r in full_rows),
         'breached_threshold':  sum(1 for r in full_rows
                                    if r['threshold_amount']
                                    and r['total_net'] > r['threshold_amount']),
     }
+    today = date.today().isoformat()
     return render_template('commission.html',
                            rows=full_rows, months=months, year_month=year_month,
-                           summary=summary)
+                           summary=summary, today=today)
+
+
+@app.route('/commission/payout', methods=['POST'])
+def commission_record_payout():
+    """Record one (or many — bulk) commission payouts."""
+    year_month = request.form.get('month', '').strip()
+    paid_date  = request.form.get('paid_date') or date.today().isoformat()
+    paid_method = request.form.get('paid_method', '').strip()
+    note       = request.form.get('note', '').strip()
+    paid_by    = session.get('username', '')
+
+    # Bulk mode: form has sp_codes[] + amount per code
+    sp_codes = request.form.getlist('sp_code')
+    if not sp_codes:
+        single = request.form.get('sp_code')
+        if single:
+            sp_codes = [single]
+
+    inserted = 0
+    for sp in sp_codes:
+        amt_raw = request.form.get(f'amount_{sp}', '').strip() or request.form.get('amount', '').strip()
+        if not amt_raw:
+            continue
+        try:
+            amt = float(amt_raw.replace(',', ''))
+        except ValueError:
+            continue
+        if amt <= 0:
+            continue
+        commission_mod.record_payout(
+            year_month=year_month, salesperson_code=sp,
+            amount_paid=amt, paid_date=paid_date,
+            paid_method=paid_method, note=note, paid_by=paid_by,
+        )
+        inserted += 1
+    if inserted:
+        flash(f'บันทึกการจ่าย commission แล้ว {inserted} รายการ', 'success')
+    else:
+        flash('ไม่ได้บันทึก (เลือกจำนวน + ยอดให้ถูก)', 'warning')
+    return redirect(url_for('commission_dashboard', month=year_month))
+
+
+@app.route('/commission/payout/<int:payout_id>/delete', methods=['POST'])
+def commission_delete_payout(payout_id):
+    conn = get_connection()
+    row = conn.execute(
+        'SELECT year_month FROM commission_payouts WHERE id = ?',
+        (payout_id,)
+    ).fetchone()
+    conn.close()
+    commission_mod.delete_payout(payout_id)
+    flash('ลบรายการจ่ายแล้ว', 'success')
+    if row:
+        return redirect(url_for('commission_payouts_list', month=row['year_month']))
+    return redirect(url_for('commission_payouts_list'))
+
+
+@app.route('/commission/payouts')
+def commission_payouts_list():
+    year_month = request.args.get('month', '').strip()
+    sp_code = request.args.get('sp', '').strip()
+    payouts = commission_mod.get_payout_history(
+        year_month=year_month or None, salesperson_code=sp_code or None
+    )
+    months = _months_with_payment_activity()
+    conn = get_connection()
+    sp_rows = conn.execute('SELECT code, name FROM salespersons ORDER BY code').fetchall()
+    conn.close()
+    return render_template('commission_payouts.html',
+                           payouts=payouts,
+                           year_month=year_month, sp_code=sp_code,
+                           months=months,
+                           salespersons=[dict(r) for r in sp_rows],
+                           total=sum(p['amount_paid'] for p in payouts))
 
 
 @app.route('/commission/sp/<sp_code>')
@@ -1580,10 +1672,19 @@ def commission_drilldown(sp_code):
                           (sp_code,)).fetchone()
     conn.close()
     sp_name = sp_row['name'] if sp_row else sp_code
+    # All invoices issued in target month for this salesperson (paid + unpaid)
+    all_invoices = commission_mod.get_invoices_for_salesperson(year_month, sp_code)
+    payouts = commission_mod.get_payout_history(year_month=year_month,
+                                                salesperson_code=sp_code)
+    paid_amount = sum(p['amount_paid'] for p in payouts)
     return render_template('commission_drilldown.html',
                            sp_code=sp_code, sp_name=sp_name,
                            year_month=year_month, months=months,
-                           invoices=invoices, summary=summary)
+                           invoices=invoices, summary=summary,
+                           all_invoices=all_invoices,
+                           payouts=payouts,
+                           paid_amount=paid_amount,
+                           today=date.today().isoformat())
 
 
 @app.route('/commission/export')
