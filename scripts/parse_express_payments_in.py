@@ -58,16 +58,25 @@ _SKIP_RE = re.compile(
 #   "03/01/67  RE6700001  สหภัณฑ์เคหะกิจ (V)  06   7524.99   7524.99"
 #   "03/01/67  RE6700003  บุญเลิศ  02   58111.68  58111.00   0.68"
 #   "09/01/67  RE6700009  ฐานิตก่อสร้าง  02  6278.14   6278.14\"   QR13220394  05/01/67  BBL  6278.14 เช็คในมือ"
-_MAIN_RE = re.compile(
+_MAIN_HEAD_RE = re.compile(
     r'^\s*'
-    r'(?P<void_pre>\*)?\s*'                            # void marker before date (rare)
+    r'(?P<void_pre>\*)?\s*'
     r'(?P<date_thai>\d{2}/\d{2}/\d{2})\s+'
-    r'(?P<void_mid>\*)?\s*'                            # void marker before doc_no (Express style)
+    r'(?P<void_mid>\*)?\s*'
     r'(?P<doc_no>RE\d{6,9})\s+'
-    r'(?P<customer>\S(?:.*?\S)?)\s{2,}'
-    r'(?P<salesperson>\S+)'
-    r'(?P<rest>.*?)\s*$'
+    r'(?P<after_doc>.+?)\s{2,}'                          # customer + (optional sp) until 2+ space gap before money
+    r'(?P<rest>[\d,]+\.\d{2}.*)$'                        # rest must start with a money token
 )
+
+# Within `after_doc`, salesperson (when present) is a trailing 1-3 digit
+# code optionally followed by '-X', preceded by single+ spaces. e.g.:
+#   "เอ ซี ซี ... สำนักงานใหญ่ 99"
+#   "สหภัณฑ์เคหะกิจ (V)                       06"
+# We also require the digit block to sit at column position >= 55 in the
+# original line — anything earlier is part of the customer name (e.g.
+# "ขุนแผน 59", where 59 is a branch suffix, not the salesperson code).
+_SP_TRAILING_RE = re.compile(r'\s+(?P<salesperson>\d{1,3}(?:-[A-Z])?)$')
+_SP_MIN_COL = 55
 
 # Cheque-trailer pattern (search within the right-hand portion of a main row).
 #   QR13220394   05/01/67  BBL          6278.14 เช็คในมือ
@@ -221,11 +230,24 @@ def parse_payments_in(path):
                 _flush_notes()
                 continue
 
-            m = _MAIN_RE.match(line)
+            m = _MAIN_HEAD_RE.match(line)
             if m:
                 _flush_notes()
                 if current is not None:
                     yield current
+                # Split `after_doc` into customer + (optional) salesperson code.
+                # The trailing digit block is only treated as salesperson if it
+                # sits past column _SP_MIN_COL — earlier digits are customer-name
+                # suffixes (e.g. "ขุนแผน 59" — 59 is a branch, not a sp code).
+                after_doc = m.group('after_doc')
+                after_doc_offset = m.start('after_doc')
+                sp_match = _SP_TRAILING_RE.search(after_doc)
+                if sp_match and (after_doc_offset + sp_match.start('salesperson')) >= _SP_MIN_COL:
+                    salesperson_code = sp_match.group('salesperson')
+                    customer_text = after_doc[:sp_match.start()].rstrip()
+                else:
+                    salesperson_code = ''
+                    customer_text = after_doc.rstrip()
                 rest = m.group('rest') or ''
                 rest_offset = m.start('rest')
                 # Try to peel off cheque trailer first
@@ -246,8 +268,8 @@ def parse_payments_in(path):
                 current = Payment(
                     doc_no=m.group('doc_no'),
                     date_iso=thai_date_to_iso(m.group('date_thai')),
-                    customer_name=m.group('customer').strip(),
-                    salesperson_code=m.group('salesperson').strip(),
+                    customer_name=customer_text,
+                    salesperson_code=salesperson_code,
                     is_void=bool(m.group('void_pre') or m.group('void_mid')),
                     deposit_applied=money.get('deposit_applied', 0.0) or 0.0,
                     invoice_amount=money.get('invoice_amount', 0.0) or 0.0,
