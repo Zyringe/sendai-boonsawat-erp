@@ -1842,7 +1842,11 @@ def express_ar_dashboard():
     sp_filter = (request.args.get('sp') or '').strip()
     sort = request.args.get('sort', 'amount')
 
-    where = ['snapshot_date_iso = ?']
+    # Exclude !RE "ใบรับชำระไม่เรียบร้อย" anomalies (Put 2026-05-02:
+    # "RE ไม่ควรอยู่ในหน้า ar เพราะลูกหนี้จ่ายแล้ว"). These are legacy
+    # 2005-2019 receipts that Express marks with is_anomalous=1; they
+    # are not real outstanding debt.
+    where = ['snapshot_date_iso = ?', 'is_anomalous = 0']
     params = [snapshot_date]
     if search:
         where.append("(customer_name LIKE ? OR customer_code LIKE ?)")
@@ -1877,7 +1881,7 @@ def express_ar_dashboard():
 
     sps = [r['salesperson_code'] for r in conn.execute(
         "SELECT DISTINCT salesperson_code FROM express_ar_outstanding "
-        "WHERE snapshot_date_iso=? AND salesperson_code <> '' "
+        "WHERE snapshot_date_iso=? AND salesperson_code <> '' AND is_anomalous=0 "
         "ORDER BY salesperson_code", (snapshot_date,)
     ).fetchall()]
     conn.close()
@@ -1907,6 +1911,7 @@ def express_ar_customer(customer_code):
           FROM express_ar_outstanding
          WHERE snapshot_date_iso = ?
            AND customer_code = ?
+           AND is_anomalous = 0
          ORDER BY doc_date_iso ASC
     """, (snapshot_date, customer_code)).fetchall()
 
