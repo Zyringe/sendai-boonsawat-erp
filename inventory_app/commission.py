@@ -517,7 +517,7 @@ def get_invoice_commission_for_sp(year_month, salesperson_code, db_path=None):
          month level, not allocated per invoice.)
 
     Returns list of dicts sorted by date desc:
-      invoice_no, receipt_no, receipt_date, customer_name,
+      invoice_no, invoice_date, receipt_no, receipt_date, customer_name,
       own_net, third_net, total_net,
       commission_due, paid_amount, remaining, paid_status
     """
@@ -528,6 +528,7 @@ def get_invoice_commission_for_sp(year_month, salesperson_code, db_path=None):
     for ln in lines:
         v = inv.setdefault(ln['invoice_no'], {
             'invoice_no':   ln['invoice_no'],
+            'invoice_date': '',          # filled below
             'receipt_no':   ln['receipt_no'],
             'receipt_date': ln['receipt_date'],
             'customer_name': ln['customer_name'],
@@ -538,6 +539,21 @@ def get_invoice_commission_for_sp(year_month, salesperson_code, db_path=None):
             v['own_net'] += ln['line_net'] or 0
         else:
             v['third_net'] += ln['line_net'] or 0
+
+    # Fetch invoice issue dates from express_sales (any line of the invoice carries date_iso)
+    if inv:
+        conn = _connect(db_path)
+        placeholders = ','.join('?' * len(inv))
+        date_rows = conn.execute(f"""
+            SELECT doc_no, MIN(date_iso) AS d
+              FROM express_sales
+             WHERE doc_no IN ({placeholders})
+             GROUP BY doc_no
+        """, list(inv.keys())).fetchall()
+        for r in date_rows:
+            if r['doc_no'] in inv:
+                inv[r['doc_no']]['invoice_date'] = r['d']
+        conn.close()
 
     # Tier rates (use base rates for per-invoice — bonus handled at month level)
     conn = _connect(db_path)

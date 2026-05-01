@@ -111,7 +111,8 @@
             <thead>
               <tr>
                 <th class="text-center"><input type="checkbox" id="check-all-inv" title="เลือกทั้งหมด"></th>
-                <th>วันที่</th>
+                <th>วันที่ซื้อ</th>
+                <th>วันที่จ่าย</th>
                 <th>เลขที่</th>
                 <th>ลูกค้า</th>
                 <th class="text-end">Own</th>
@@ -121,7 +122,6 @@
                 <th class="text-end">จ่ายแล้ว</th>
                 <th class="text-end">คงเหลือ</th>
                 <th class="text-center">สถานะ</th>
-                <th class="text-end" style="width:120px">จะจ่าย ฿</th>
               </tr>
             </thead>
             <tbody>
@@ -130,8 +130,11 @@
                 <td class="text-center">
                   {% if inv.remaining > 0.01 %}
                   <input type="checkbox" name="invoice_no" value="{{ inv.invoice_no }}" class="inv-check">
+                  {# remaining sent as the implicit amount when ticked #}
+                  <input type="hidden" name="amount_{{ inv.invoice_no }}" value="{{ '%.2f'|format(inv.remaining) }}">
                   {% endif %}
                 </td>
+                <td class="font-mono small">{{ inv.invoice_date or '—' }}</td>
                 <td class="font-mono small">{{ inv.receipt_date }}</td>
                 <td class="font-mono">
                   <a href="{{ url_for('commission_invoice_detail', sp_code=sp_code, invoice_no=inv.invoice_no, month=year_month) }}"
@@ -159,23 +162,15 @@
                     <span class="badge bg-light text-dark">รอจ่าย</span>
                   {% endif %}
                 </td>
-                <td class="text-end">
-                  {% if inv.remaining > 0.01 %}
-                  <input type="number" step="0.01" min="0"
-                         name="amount_{{ inv.invoice_no }}"
-                         value="{{ '%.2f'|format(inv.remaining) }}"
-                         class="form-control form-control-sm font-mono text-end">
-                  {% endif %}
-                </td>
               </tr>
               {% endfor %}
               <tr class="table-light">
-                <td colspan="6" class="text-end fw-600">รวม</td>
+                <td colspan="7" class="text-end fw-600">รวม</td>
                 <td class="text-end font-mono fw-600">{{ '{:,.2f}'.format(invoice_commissions|sum(attribute='total_net')) }}</td>
                 <td class="text-end font-mono fw-600 text-success">{{ '{:,.2f}'.format(invoice_commissions|sum(attribute='commission_due')) }}</td>
                 <td class="text-end font-mono fw-600">{{ '{:,.2f}'.format(invoice_commissions|sum(attribute='paid_amount')) }}</td>
                 <td class="text-end font-mono fw-600 text-warning">{{ '{:,.2f}'.format(invoice_commissions|sum(attribute='remaining')) }}</td>
-                <td colspan="2"></td>
+                <td></td>
               </tr>
             </tbody>
           </table>
