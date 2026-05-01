@@ -150,23 +150,32 @@ def get_commission_for_month(year_month, salesperson_code=None, db_path=None):
     if salesperson_code:
         rows = [r for r in rows if r['salesperson_code'] == salesperson_code]
 
-    # Aggregate net per (sp, brand_kind)
+    # Aggregate net per (sp, brand_kind, invoice). Per-invoice grouping is
+    # needed so that the monthly base-commission total matches the sum of
+    # per-invoice rounded commissions (otherwise rounding accumulates and
+    # the dashboard "remaining" shows ±0.02 even when every invoice has
+    # been paid in full).
     own = defaultdict(float)
     third = defaultdict(float)
+    own_inv = defaultdict(lambda: defaultdict(float))     # own_inv[sp][invoice_no]
+    third_inv = defaultdict(lambda: defaultdict(float))
     receipts = defaultdict(set)
     invoices = defaultdict(set)
     line_count = defaultdict(int)
 
     for r in rows:
         sp = r['salesperson_code']
+        inv_no = r['invoice_no']
         kind = r['brand_kind'] or classify_brand_kind(r['product_name_raw'] or '')
         net = r['line_net'] or 0.0
         if kind == 'own':
             own[sp] += net
+            own_inv[sp][inv_no] += net
         else:
             third[sp] += net
+            third_inv[sp][inv_no] += net
         receipts[sp].add(r['receipt_no'])
-        invoices[sp].add(r['invoice_no'])
+        invoices[sp].add(inv_no)
         line_count[sp] += 1
 
     # Compute commission per salesperson
@@ -190,31 +199,36 @@ def get_commission_for_month(year_month, salesperson_code=None, db_path=None):
             r_own = tier['rate_own_pct'] / 100.0
             r_third = tier['rate_third_pct'] / 100.0
 
+            # Per-invoice base commission — sum of (own_inv × r_own +
+            # third_inv × r_third) rounded each. This is the canonical
+            # base value: it always equals what the user pays when ticking
+            # every invoice on the drill-down.
+            invoice_keys = set(own_inv[sp].keys()) | set(third_inv[sp].keys())
+            base_per_invoice = 0.0
+            for inv_key in invoice_keys:
+                base_per_invoice += round(
+                    own_inv[sp][inv_key] * r_own + third_inv[sp][inv_key] * r_third, 2,
+                )
+
             if threshold is None or total_net <= threshold or threshold == 0:
-                # Either no threshold, or below threshold — apply base rates only
-                commission_below = round(own_net * r_own + third_net * r_third, 2)
+                commission_below = round(base_per_invoice, 2)
                 commission_above_own = 0.0
                 commission_above_third = 0.0
             else:
-                # Threshold breach — split below + above with proportional
-                # own/third allocation in the above portion.
+                # Tier B threshold breach: base_per_invoice covers the
+                # below+above as if everything used the BASE rates;
+                # we add the difference (above-portion bonus) on top.
                 excess = total_net - threshold
-                # Below portion gets the flat base rates (they're equal for
-                # Tier B, but we keep formula generic).
-                # Allocate "below" proportionally too so totals reconcile.
                 own_share = own_net / total_net if total_net else 0.0
                 third_share = third_net / total_net if total_net else 0.0
-                below_own = threshold * own_share
-                below_third = threshold * third_share
-                commission_below = round(
-                    below_own * r_own + below_third * r_third, 2,
-                )
-                above_own_amt = excess * own_share
-                above_third_amt = excess * third_share
                 ar_own = (tier['above_rate_own_pct'] or 0) / 100.0
                 ar_third = (tier['above_rate_third_pct'] or 0) / 100.0
-                commission_above_own = round(above_own_amt * ar_own, 2)
-                commission_above_third = round(above_third_amt * ar_third, 2)
+                # bonus = above-rate − base-rate, applied to the excess portion
+                bonus_own = excess * own_share * (ar_own - r_own)
+                bonus_third = excess * third_share * (ar_third - r_third)
+                commission_below = round(base_per_invoice, 2)
+                commission_above_own = round(max(bonus_own, 0), 2)
+                commission_above_third = round(max(bonus_third, 0), 2)
 
         total_commission = round(
             commission_below + commission_above_own + commission_above_third, 2,
