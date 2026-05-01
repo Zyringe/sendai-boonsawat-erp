@@ -135,9 +135,8 @@
                 <td class="font-mono small">{{ inv.receipt_date }}</td>
                 <td class="font-mono">
                   <a href="{{ url_for('commission_invoice_detail', sp_code=sp_code, invoice_no=inv.invoice_no, month=year_month) }}"
-                     class="text-reset" title="ดูรายละเอียดสินค้า + rate">
+                     class="text-reset text-decoration-none" title="ดูรายละเอียดสินค้า + rate">
                     <strong>{{ inv.invoice_no }}</strong>
-                    <i class="bi bi-arrow-up-right small text-muted"></i>
                   </a>
                 </td>
                 <td>{{ inv.customer_name }}</td>

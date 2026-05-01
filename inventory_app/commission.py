@@ -426,6 +426,10 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
     plus a header dict describing the invoice + tier rate context.
     """
     conn = _connect(db_path)
+    # NB: do NOT filter express_sales by month — the invoice doc_no is
+    # globally unique, and an invoice paid in month X may have been
+    # issued months earlier. The receipt's date is the month-bound
+    # axis; the invoice's lines are wherever they live in time.
     rows = conn.execute("""
         SELECT es.product_code,
                es.product_name_raw,
@@ -437,13 +441,9 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
                (SELECT id FROM products p WHERE p.product_name = es.product_name_raw LIMIT 1)
                                     AS sendy_product_id
           FROM express_sales es
-          JOIN express_payment_in_invoice_refs ref ON ref.invoice_no = es.doc_no
-          JOIN express_payments_in pin ON pin.id = ref.payment_in_id
-         WHERE pin.salesperson_code = ?
-           AND pin.is_void = 0
-           AND es.doc_no = ?
-           AND es.date_iso BETWEEN ? AND ?
-    """, (salesperson_code, invoice_no, *_month_bounds(year_month))).fetchall()
+         WHERE es.doc_no = ?
+         ORDER BY es.line_no
+    """, (invoice_no,)).fetchall()
 
     # Tier rates
     tier = conn.execute("""
