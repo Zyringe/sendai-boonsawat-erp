@@ -1,0 +1,316 @@
+"""Import a parsed Express file into the express_* tables.
+
+One CLI per session: pick the file_type explicitly, point at the
+exported CSV, the script parses + inserts atomically inside one
+batch row in `express_import_log`. If anything raises, the whole
+batch rolls back.
+
+Usage:
+    python scripts/import_express.py credit_notes  /path/to/ใบลดหนี้.csv
+    python scripts/import_express.py payments_in   /path/to/การรับชำระหนี้.csv
+    python scripts/import_express.py ar_snapshot   /path/to/ลูกหนี้คงค้าง.csv
+    python scripts/import_express.py payments_out  /path/to/จ่ายชำระหนี้.csv
+    python scripts/import_express.py sales         /path/to/ขาย.csv
+
+Add --dry-run to parse-only without writing to DB. Add --company STD
+to attribute the batch to Sendai Trading instead of BSN (default).
+
+Lookup backfill (customer_id, supplier_id) runs best-effort by exact
+name match. Anything that doesn't match stays NULL — mapping work
+happens separately, not blocking import.
+"""
+from __future__ import annotations
+
+import argparse
+import sqlite3
+import sys
+from dataclasses import asdict
+from pathlib import Path
+
+# Resolve sibling modules
+_HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(_HERE))
+
+import parse_express_credit_notes as p_cn        # noqa: E402
+import parse_express_payments_in as p_pin        # noqa: E402
+import parse_express_ar_snapshot as p_ar          # noqa: E402
+import parse_express_payments_out as p_pout       # noqa: E402
+import parse_express_sales as p_sales             # noqa: E402
+
+DB_PATH = _HERE.parent / 'inventory_app' / 'instance' / 'inventory.db'
+
+
+# ── small lookup helpers ─────────────────────────────────────────────────────
+def _company_id(conn, code):
+    row = conn.execute('SELECT id FROM companies WHERE code = ?', (code,)).fetchone()
+    if row is None:
+        raise SystemExit(f'No company row for code={code!r}. Has migration 011 run?')
+    return row[0]
+
+
+def _supplier_id_by_name(conn, name):
+    """Best-effort exact-name match against suppliers.name."""
+    if not name:
+        return None
+    row = conn.execute('SELECT id FROM suppliers WHERE name = ?', (name.strip(),)).fetchone()
+    return row[0] if row else None
+
+
+def _customer_code_by_name(conn, name):
+    """Best-effort exact-name match against customers.name."""
+    if not name:
+        return None
+    row = conn.execute('SELECT code FROM customers WHERE name = ?', (name.strip(),)).fetchone()
+    return row[0] if row else None
+
+
+def _product_id_by_code(conn, code):
+    """Express product codes are not stored on products today — return None.
+    Wired here so mapping logic can plug in later."""
+    return None
+
+
+# ── per-file-type writers ────────────────────────────────────────────────────
+def _import_credit_notes(conn, path, batch_id, company_id):
+    records = list(p_cn.parse_credit_notes(path))
+    line_count = 0
+    for r in records:
+        cur = conn.execute("""
+            INSERT INTO express_credit_notes
+                (batch_id, doc_no, date_iso, company_id, supplier_name, supplier_id,
+                 ref_doc, discount_amount, vat_amount, total_amount,
+                 is_cleared, is_void, type_code, note)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            batch_id, r.doc_no, r.date_iso, company_id, r.supplier_name,
+            _supplier_id_by_name(conn, r.supplier_name),
+            r.ref_doc, r.discount, r.vat, r.total,
+            int(r.is_cleared), int(r.is_void), r.type_code, r.note,
+        ))
+        cn_id = cur.lastrowid
+        for ln in r.lines:
+            conn.execute("""
+                INSERT INTO express_credit_note_lines
+                    (credit_note_id, line_no, product_code, product_id,
+                     product_name_raw, qty, unit, unit_price,
+                     discount, line_total, is_cleared)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                cn_id, ln.line_no, ln.product_code,
+                _product_id_by_code(conn, ln.product_code),
+                ln.product_name, ln.qty, ln.unit, ln.unit_price,
+                ln.discount, ln.line_total, int(ln.is_cleared),
+            ))
+            line_count += 1
+    return len(records), line_count
+
+
+def _import_payments_in(conn, path, batch_id, company_id):
+    records = list(p_pin.parse_payments_in(path))
+    line_count = 0
+    for r in records:
+        customer_code = _customer_code_by_name(conn, r.customer_name)
+        cur = conn.execute("""
+            INSERT INTO express_payments_in
+                (batch_id, doc_no, date_iso, company_id,
+                 customer_name, customer_code, customer_id, salesperson_code, is_void,
+                 deposit_applied, invoice_amount, cash_amount, cheque_amount,
+                 interest_amount, discount_amount, vat_amount,
+                 cheque_no, cheque_date_iso, bank, cheque_status, note)
+            VALUES (?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?, ?, ?)
+        """, (
+            batch_id, r.doc_no, r.date_iso, company_id,
+            r.customer_name, customer_code, customer_code,
+            r.salesperson_code, int(r.is_void),
+            r.deposit_applied, r.invoice_amount, r.cash_amount, r.cheque_amount,
+            r.interest_amount, r.discount_amount, r.vat_amount,
+            r.cheque_no, r.cheque_date_iso, r.bank, r.cheque_status, r.note,
+        ))
+        pid = cur.lastrowid
+        for ref in r.invoice_refs:
+            conn.execute("""
+                INSERT INTO express_payment_in_invoice_refs
+                    (payment_in_id, invoice_no, invoice_date_iso, amount)
+                VALUES (?, ?, ?, ?)
+            """, (pid, ref.invoice_no, ref.invoice_date_iso, ref.amount))
+            line_count += 1
+    return len(records), line_count
+
+
+def _import_ar_snapshot(conn, path, batch_id, company_id):
+    records = list(p_ar.parse_ar_snapshot(path))
+    # Snapshot date is the latest doc_date_iso in the batch (reasonable default).
+    # If empty, use today.
+    snapshot_date = max((r.doc_date_iso for r in records if r.doc_date_iso), default='')
+    for r in records:
+        customer_code = (r.customer_code or '').strip()
+        # Some customer headers carry codes that don't match customers.code (legacy);
+        # try direct match first, then by name.
+        cust_id = None
+        if customer_code:
+            row = conn.execute('SELECT code FROM customers WHERE code = ?', (customer_code,)).fetchone()
+            cust_id = row[0] if row else _customer_code_by_name(conn, r.customer_name)
+        else:
+            cust_id = _customer_code_by_name(conn, r.customer_name)
+        conn.execute("""
+            INSERT INTO express_ar_outstanding
+                (batch_id, snapshot_date_iso, customer_code, customer_name, customer_id,
+                 customer_type, doc_date_iso, doc_no, is_anomalous,
+                 salesperson_code, bill_amount, paid_amount, outstanding_amount, has_warning)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            batch_id, snapshot_date, customer_code, r.customer_name, cust_id,
+            r.customer_type, r.doc_date_iso, r.doc_no, int(r.is_anomalous),
+            r.salesperson_code, r.bill_amount, r.paid_amount, r.outstanding_amount,
+            int(r.has_warning),
+        ))
+    # Also stamp snapshot_date back onto the batch row for visibility
+    conn.execute('UPDATE express_import_log SET snapshot_date_iso = ? WHERE id = ?',
+                 (snapshot_date, batch_id))
+    return len(records), 0
+
+
+def _import_payments_out(conn, path, batch_id, company_id):
+    records = list(p_pout.parse_payments_out(path))
+    line_count = 0
+    for r in records:
+        cur = conn.execute("""
+            INSERT INTO express_payments_out
+                (batch_id, doc_no, date_iso, company_id,
+                 supplier_name, supplier_id, is_void,
+                 deposit_applied, invoice_amount, cash_amount, cheque_amount,
+                 interest_amount, discount_amount, vat_amount,
+                 cheque_no, cheque_date_iso, bank, cheque_status, note)
+            VALUES (?, ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?, ?, ?)
+        """, (
+            batch_id, r.doc_no, r.date_iso, company_id,
+            r.supplier_name, _supplier_id_by_name(conn, r.supplier_name), int(r.is_void),
+            r.deposit_applied, r.invoice_amount, r.cash_amount, r.cheque_amount,
+            r.interest_amount, r.discount_amount, r.vat_amount,
+            r.cheque_no, r.cheque_date_iso, r.bank, r.cheque_status, r.note,
+        ))
+        pid = cur.lastrowid
+        for ref in r.receive_refs:
+            conn.execute("""
+                INSERT INTO express_payment_out_receive_refs
+                    (payment_out_id, receive_doc, receive_date_iso, invoice_ref, amount)
+                VALUES (?, ?, ?, ?, ?)
+            """, (pid, ref.receive_doc, ref.receive_date_iso, ref.invoice_ref, ref.amount))
+            line_count += 1
+    return len(records), line_count
+
+
+def _import_sales(conn, path, batch_id, company_id):
+    records = list(p_sales.parse_sales(path))
+    for r in records:
+        # Doc-type prefix from doc_no
+        doc_type = r.doc_no[:2]
+        customer_code = (r.customer_code or '').strip()
+        cust_id = None
+        if customer_code:
+            row = conn.execute('SELECT code FROM customers WHERE code = ?', (customer_code,)).fetchone()
+            cust_id = row[0] if row else None
+        conn.execute("""
+            INSERT INTO express_sales
+                (batch_id, doc_no, line_no, doc_type, date_iso, company_id,
+                 customer_code, customer_name, customer_id,
+                 product_code, product_id, product_name_raw,
+                 qty, unit, return_flag, unit_price, vat_type,
+                 discount, total, total_discount, net, ref_doc, is_warning)
+            VALUES (?, ?, ?, ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?)
+        """, (
+            batch_id, r.doc_no, r.line_no, doc_type, r.date_iso, company_id,
+            customer_code, r.customer_name, cust_id,
+            r.product_code, _product_id_by_code(conn, r.product_code), r.product_name,
+            r.qty, r.unit, r.return_flag, r.unit_price, r.vat_type,
+            r.discount, r.total, r.total_discount, r.net, r.ref_doc, int(r.is_warning),
+        ))
+    return len(records), 0
+
+
+_IMPORTERS = {
+    'credit_notes':  _import_credit_notes,
+    'payments_in':   _import_payments_in,
+    'ar_snapshot':   _import_ar_snapshot,
+    'payments_out':  _import_payments_out,
+    'sales':         _import_sales,
+}
+
+
+# ── orchestration ────────────────────────────────────────────────────────────
+def run_import(file_type, path, company_code='BSN', dry_run=False):
+    if file_type not in _IMPORTERS:
+        raise SystemExit(f'unknown file_type {file_type!r} — pick from {sorted(_IMPORTERS)}')
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('PRAGMA foreign_keys = OFF')   # match app behaviour
+    company_id = _company_id(conn, company_code)
+
+    if dry_run:
+        # Parse-only: bypass DB writes
+        if file_type == 'credit_notes':
+            records = list(p_cn.parse_credit_notes(path))
+            print(f'[dry-run] credit_notes: {len(records)} records')
+        elif file_type == 'payments_in':
+            records = list(p_pin.parse_payments_in(path))
+            print(f'[dry-run] payments_in: {len(records)} records')
+        elif file_type == 'ar_snapshot':
+            records = list(p_ar.parse_ar_snapshot(path))
+            print(f'[dry-run] ar_snapshot: {len(records)} records')
+        elif file_type == 'payments_out':
+            records = list(p_pout.parse_payments_out(path))
+            print(f'[dry-run] payments_out: {len(records)} records')
+        elif file_type == 'sales':
+            records = list(p_sales.parse_sales(path))
+            print(f'[dry-run] sales: {len(records)} records')
+        conn.close()
+        return
+
+    cur = conn.execute("""
+        INSERT INTO express_import_log
+            (file_type, source_filename, company_id, status, note)
+        VALUES (?, ?, ?, 'imported', ?)
+    """, (file_type, str(path), company_id, f'imported via scripts/import_express.py'))
+    batch_id = cur.lastrowid
+
+    try:
+        record_count, line_count = _IMPORTERS[file_type](conn, path, batch_id, company_id)
+        conn.execute("""
+            UPDATE express_import_log
+            SET record_count = ?, line_count = ?
+            WHERE id = ?
+        """, (record_count, line_count, batch_id))
+        conn.commit()
+        print(f'OK batch_id={batch_id}  records={record_count}  lines={line_count}')
+    except Exception as exc:
+        conn.rollback()
+        print(f'FAILED batch — rolled back. error: {exc}', file=sys.stderr)
+        raise
+    finally:
+        conn.close()
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('file_type', choices=sorted(_IMPORTERS))
+    ap.add_argument('path', type=Path)
+    ap.add_argument('--company', default='BSN', help='company code (BSN or STD)')
+    ap.add_argument('--dry-run', action='store_true')
+    args = ap.parse_args()
+    run_import(args.file_type, args.path, args.company, args.dry_run)
+
+
+if __name__ == '__main__':
+    main()
