@@ -1470,5 +1470,208 @@ def api_product_barcodes(product_id):
     return jsonify({'items': [dict(r) for r in rows]})
 
 
+# ── Commission / Express AR-AP dashboards ───────────────────────────────────
+import commission as commission_mod  # noqa: E402
+
+
+def _months_with_payment_activity():
+    """Distinct YYYY-MM strings present in express_payments_in (non-void)."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT DISTINCT substr(date_iso, 1, 7) AS ym "
+        "FROM express_payments_in WHERE is_void=0 ORDER BY ym DESC"
+    ).fetchall()
+    conn.close()
+    return [r['ym'] for r in rows]
+
+
+@app.route('/commission')
+def commission_dashboard():
+    months = _months_with_payment_activity()
+    if not months:
+        return render_template('commission.html', rows=[], months=[], year_month='',
+                               summary={}, salespersons={})
+
+    year_month = request.args.get('month') or months[0]
+    rows = commission_mod.get_commission_for_month(year_month)
+
+    # Show all 12 salespersons even if no activity, so dashboard is stable.
+    conn = get_connection()
+    sp_rows = conn.execute(
+        "SELECT s.code, s.name, t.code AS tier_code "
+        "FROM salespersons s "
+        "LEFT JOIN commission_assignments a ON a.salesperson_code = s.code "
+        "LEFT JOIN commission_tiers t ON t.id = a.tier_id "
+        "ORDER BY s.code"
+    ).fetchall()
+    conn.close()
+    sp_meta = {r['code']: dict(r) for r in sp_rows}
+
+    activity = {r['salesperson_code']: r for r in rows}
+    full_rows = []
+    for code, meta in sp_meta.items():
+        if code in activity:
+            r = activity[code]
+            r['salesperson_name'] = meta['name']
+            full_rows.append(r)
+        else:
+            full_rows.append({
+                'salesperson_code': code, 'salesperson_name': meta['name'],
+                'tier_code': meta['tier_code'] or '?', 'tier_name': '',
+                'own_net': 0.0, 'third_net': 0.0, 'total_net': 0.0,
+                'threshold_amount': None,
+                'commission_below': 0.0, 'commission_above_own': 0.0,
+                'commission_above_third': 0.0, 'total_commission': 0.0,
+                'receipts_count': 0, 'invoices_seen': 0, 'lines_attributed': 0,
+            })
+    full_rows.sort(key=lambda r: -r['total_net'])
+
+    summary = {
+        'total_collected_net': sum(r['total_net'] for r in full_rows),
+        'total_commission':    sum(r['total_commission'] for r in full_rows),
+        'breached_threshold':  sum(1 for r in full_rows
+                                   if r['threshold_amount']
+                                   and r['total_net'] > r['threshold_amount']),
+    }
+    return render_template('commission.html',
+                           rows=full_rows, months=months, year_month=year_month,
+                           summary=summary)
+
+
+@app.route('/commission/export')
+def commission_export():
+    year_month = request.args.get('month') or ''
+    if not year_month:
+        abort(400)
+    rows = commission_mod.get_commission_for_month(year_month)
+    import csv
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(['salesperson_code', 'tier', 'own_net', 'third_net', 'total_net',
+                'threshold', 'commission_below', 'commission_above_own',
+                'commission_above_third', 'total_commission',
+                'receipts', 'invoices', 'lines'])
+    for r in rows:
+        w.writerow([r['salesperson_code'], r['tier_code'],
+                    f"{r['own_net']:.2f}", f"{r['third_net']:.2f}",
+                    f"{r['total_net']:.2f}", r['threshold_amount'] or '',
+                    f"{r['commission_below']:.2f}",
+                    f"{r['commission_above_own']:.2f}",
+                    f"{r['commission_above_third']:.2f}",
+                    f"{r['total_commission']:.2f}",
+                    r['receipts_count'], r['invoices_seen'], r['lines_attributed']])
+    out = buf.getvalue().encode('utf-8-sig')  # BOM for Excel-Thai
+    return send_file(io.BytesIO(out), mimetype='text/csv',
+                     as_attachment=True,
+                     download_name=f'commission_{year_month}.csv')
+
+
+@app.route('/express/ar')
+def express_ar_dashboard():
+    """AR outstanding view from the latest express_ar_outstanding snapshot."""
+    conn = get_connection()
+    snapshot = conn.execute(
+        "SELECT MAX(snapshot_date_iso) AS d FROM express_ar_outstanding"
+    ).fetchone()
+    snapshot_date = snapshot['d'] if snapshot else None
+
+    search = (request.args.get('q') or '').strip()
+    sp_filter = (request.args.get('sp') or '').strip()
+    sort = request.args.get('sort', 'amount')
+
+    where = ['snapshot_date_iso = ?']
+    params = [snapshot_date]
+    if search:
+        where.append("(customer_name LIKE ? OR customer_code LIKE ?)")
+        params += [f'%{search}%', f'%{search}%']
+    if sp_filter:
+        where.append('salesperson_code = ?')
+        params.append(sp_filter)
+
+    order = {
+        'amount': 'outstanding_amount DESC',
+        'date':   'doc_date_iso ASC',
+        'customer': 'customer_name ASC, doc_date_iso ASC',
+    }.get(sort, 'outstanding_amount DESC')
+
+    rows = conn.execute(f"""
+        SELECT customer_code, customer_name, customer_type, salesperson_code,
+               doc_no, doc_date_iso, bill_amount, paid_amount, outstanding_amount,
+               is_anomalous, has_warning,
+               CAST(julianday('now') - julianday(doc_date_iso) AS INTEGER) AS age_days
+          FROM express_ar_outstanding
+         WHERE {' AND '.join(where)}
+         ORDER BY {order}
+        LIMIT 1000
+    """, params).fetchall()
+
+    summary = conn.execute(
+        f"SELECT COUNT(*) AS n_docs, COUNT(DISTINCT customer_code) AS n_customers, "
+        f"ROUND(SUM(outstanding_amount), 2) AS total "
+        f"FROM express_ar_outstanding WHERE {' AND '.join(where)}",
+        params
+    ).fetchone()
+
+    sps = [r['salesperson_code'] for r in conn.execute(
+        "SELECT DISTINCT salesperson_code FROM express_ar_outstanding "
+        "WHERE snapshot_date_iso=? AND salesperson_code <> '' "
+        "ORDER BY salesperson_code", (snapshot_date,)
+    ).fetchall()]
+    conn.close()
+
+    return render_template('express_ar.html',
+                           rows=[dict(r) for r in rows],
+                           summary=dict(summary) if summary else {},
+                           snapshot_date=snapshot_date,
+                           sps=sps, sp_filter=sp_filter,
+                           search=search, sort=sort)
+
+
+@app.route('/express/ap')
+def express_ap_dashboard():
+    """AP supplier-payment view from express_payments_out."""
+    conn = get_connection()
+    date_from = request.args.get('from') or '2024-01-01'
+    date_to   = request.args.get('to')   or date.today().isoformat()
+
+    rows = conn.execute("""
+        SELECT supplier_name,
+               COUNT(*) AS payments,
+               ROUND(SUM(invoice_amount), 2) AS invoice_total,
+               ROUND(SUM(cash_amount + cheque_amount), 2) AS paid_total,
+               ROUND(SUM(discount_amount), 2) AS discount_total,
+               MAX(date_iso) AS last_paid
+          FROM express_payments_out
+         WHERE is_void = 0
+           AND date_iso BETWEEN ? AND ?
+         GROUP BY supplier_name
+         ORDER BY paid_total DESC
+    """, (date_from, date_to)).fetchall()
+
+    summary = conn.execute("""
+        SELECT COUNT(*) AS n_payments,
+               COUNT(DISTINCT supplier_name) AS n_suppliers,
+               ROUND(SUM(cash_amount + cheque_amount), 2) AS total_paid
+          FROM express_payments_out
+         WHERE is_void = 0 AND date_iso BETWEEN ? AND ?
+    """, (date_from, date_to)).fetchone()
+
+    recent = conn.execute("""
+        SELECT doc_no, date_iso, supplier_name, invoice_amount,
+               (cash_amount + cheque_amount) AS paid, note
+          FROM express_payments_out
+         WHERE is_void = 0 AND date_iso BETWEEN ? AND ?
+         ORDER BY date_iso DESC, doc_no DESC
+         LIMIT 50
+    """, (date_from, date_to)).fetchall()
+
+    conn.close()
+    return render_template('express_ap.html',
+                           rows=[dict(r) for r in rows],
+                           recent=[dict(r) for r in recent],
+                           summary=dict(summary) if summary else {},
+                           date_from=date_from, date_to=date_to)
+
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5001, use_reloader=False)
