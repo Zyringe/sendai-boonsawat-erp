@@ -1561,27 +1561,33 @@ def get_payment_summary():
 
 
 def get_customer_debt_summary(search=''):
-    """สรุปหนี้ค้างชำระรายลูกค้า เรียงตามยอดค้างมากสุด"""
+    """สรุปหนี้ค้างชำระรายลูกค้า เรียงตามยอดค้างมากสุด.
+
+    Sourced from express_ar_outstanding (latest snapshot) — same data as
+    /express/ar — filtered to doc_date_iso >= 2024-01-01 (Sendy import
+    window). Per Put 2026-05-02: BSN sync และ Express ใช้แหล่งเดียวกัน,
+    ใช้ Express snapshot เป็น source of truth, จำกัดช่วงเดียวกับ Sendy
+    import (2024-01-01 ถึงปัจจุบัน) เพื่อไม่นับ legacy debt ก่อนยุคนั้น.
+    """
     conn = get_connection()
     cond = ""
     params = []
     if search:
-        cond = "AND st.customer LIKE ?"
-        params.append(f'%{search}%')
+        cond = "AND (ao.customer_name LIKE ? OR ao.customer_code LIKE ?)"
+        params += [f'%{search}%', f'%{search}%']
 
     rows = conn.execute(f"""
         SELECT
-            st.customer,
-            st.customer_code,
-            COUNT(DISTINCT st.doc_base) AS unpaid_bills,
-            SUM(CASE WHEN st.vat_type = 2 THEN st.net * 1.07 ELSE st.net END) AS outstanding_amount
-        FROM sales_transactions st
-        LEFT JOIN paid_invoices pi ON pi.iv_no = st.doc_base
-        WHERE st.doc_base IS NOT NULL
-          AND st.doc_base NOT LIKE 'SR%' AND st.doc_base NOT LIKE 'HS%'
-          AND pi.iv_no IS NULL
+            COALESCE(c.name, ao.customer_name) AS customer,
+            ao.customer_code,
+            COUNT(*)                           AS unpaid_bills,
+            ROUND(SUM(ao.outstanding_amount), 2) AS outstanding_amount
+        FROM express_ar_outstanding ao
+        LEFT JOIN customers c ON c.code = ao.customer_code
+        WHERE ao.snapshot_date_iso = (SELECT MAX(snapshot_date_iso) FROM express_ar_outstanding)
+          AND ao.doc_date_iso >= '2024-01-01'
           {cond}
-        GROUP BY st.customer, st.customer_code
+        GROUP BY ao.customer_code
         HAVING outstanding_amount > 0
         ORDER BY outstanding_amount DESC
     """, params).fetchall()
@@ -1811,27 +1817,36 @@ def get_product_pricing(product_id):
 
 
 def get_customer_unpaid_bills(customer_name):
-    """รายการบิลค้างชำระของลูกค้าคนนี้"""
+    """รายการบิลค้างชำระของลูกค้าคนนี้.
+
+    Sourced from express_ar_outstanding (latest snapshot, doc_date >= 2024).
+    Customer matched first by customers.name → customer_code, then falls
+    back to ao.customer_name LIKE for legacy/typo cases.
+    """
     conn = get_connection()
     rows = conn.execute("""
         SELECT
-            st.doc_base,
-            MIN(st.date_iso) AS bill_date,
-            st.customer,
-            st.customer_code,
-            MAX(st.vat_type) AS vat_type,
-            SUM(CASE WHEN st.vat_type = 2 THEN st.net * 1.07 ELSE st.net END) AS total_net
-        FROM sales_transactions st
-        LEFT JOIN paid_invoices pi ON pi.iv_no = st.doc_base
-        LEFT JOIN received_payments rp ON rp.id = pi.re_id AND rp.cancelled = 0
-        WHERE st.doc_base IS NOT NULL
-          AND st.doc_base NOT LIKE 'SR%' AND st.doc_base NOT LIKE 'HS%'
-          AND st.customer = ?
-          AND pi.iv_no IS NULL
-        GROUP BY st.doc_base
-        HAVING total_net > 0
-        ORDER BY bill_date DESC
-    """, [customer_name]).fetchall()
+            ao.doc_no                    AS doc_base,
+            ao.doc_date_iso              AS bill_date,
+            COALESCE(c.name, ao.customer_name) AS customer,
+            ao.customer_code,
+            NULL                         AS vat_type,    -- placeholder; Express totals are already as-billed
+            ao.outstanding_amount        AS total_net,
+            ao.bill_amount,
+            ao.paid_amount,
+            ao.is_anomalous,
+            ao.has_warning
+        FROM express_ar_outstanding ao
+        LEFT JOIN customers c ON c.code = ao.customer_code
+        WHERE ao.snapshot_date_iso = (SELECT MAX(snapshot_date_iso) FROM express_ar_outstanding)
+          AND ao.doc_date_iso >= '2024-01-01'
+          AND (
+                COALESCE(c.name, '') = ?
+             OR ao.customer_name = ?
+          )
+          AND ao.outstanding_amount > 0
+        ORDER BY ao.doc_date_iso DESC
+    """, [customer_name, customer_name]).fetchall()
     conn.close()
     return rows
 
