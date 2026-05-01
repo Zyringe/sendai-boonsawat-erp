@@ -41,22 +41,20 @@ _DB_PATH = os.environ.get(
 
 
 # ── Brand classifier ────────────────────────────────────────────────────────
-# Matches product_name keyword fragments observed in the catalogue. Order
-# matters — most specific first.
+# Used as fallback when express_sales.brand_kind is NULL — for example a
+# brand-new product imported after the brand_map was last refreshed. The
+# canonical source is product_brand_map (loaded from brand.csv) plus the
+# brand_kind column it backfills onto express_sales.
 _OWN_BRAND_RE = re.compile(
-    r'(?:Sendai|SENDAI|S/D|S\.D\.|'
-    r'สิงห์|Golden\s*Lion|GOLDENLION|GL-|'
-    r'A-?SPEC|ASPEC|'
-    r'#GL-|#SD-)',
+    r'(?:Sendai|SENDAI|\bSD\b|\bS/D\b|S\.D\.|'
+    r'สิงห์|Golden\s*Lion|GOLDEN\s*LION|GOLDENLION|GL-|'
+    r'A-?SPEC|ASPEC)',
     re.IGNORECASE,
 )
 
 
 def classify_brand_kind(product_name):
-    """Return 'own' or 'third_party'.
-
-    Defaults to 'third_party' when no own-brand keyword is found.
-    """
+    """Return 'own' or 'third_party' from product_name keyword regex."""
     if product_name and _OWN_BRAND_RE.search(product_name):
         return 'own'
     return 'third_party'
@@ -99,12 +97,15 @@ _BASE_QUERY = """
     SELECT pin.salesperson_code,
            pin.doc_no            AS receipt_no,
            pin.date_iso          AS receipt_date,
+           pin.customer_name     AS customer_name,
            ref.invoice_no,
            ref.amount            AS ref_amount,
            es.product_code,
            es.product_name_raw,
+           es.brand_kind         AS brand_kind,
            es.net                AS line_net,
-           es.total              AS line_total
+           es.total              AS line_total,
+           es.qty                AS qty
       FROM express_payments_in    pin
       JOIN express_payment_in_invoice_refs ref ON ref.payment_in_id = pin.id
       JOIN express_sales          es  ON es.doc_no = ref.invoice_no
@@ -158,7 +159,7 @@ def get_commission_for_month(year_month, salesperson_code=None, db_path=None):
 
     for r in rows:
         sp = r['salesperson_code']
-        kind = classify_brand_kind(r['product_name_raw'] or '')
+        kind = r['brand_kind'] or classify_brand_kind(r['product_name_raw'] or '')
         net = r['line_net'] or 0.0
         if kind == 'own':
             own[sp] += net
@@ -236,5 +237,27 @@ def get_commission_for_month(year_month, salesperson_code=None, db_path=None):
             'lines_attributed': line_count[sp],
         })
 
+    conn.close()
+    return out
+
+
+def get_lines_for_salesperson(year_month, salesperson_code, db_path=None):
+    """Return per-line detail for one salesperson in a month.
+
+    Each row represents one (receipt, invoice, sales-line) tuple — useful
+    for the drill-down "what invoices is this salesperson getting paid
+    on?" view. Sorted by invoice date desc, then invoice doc_no.
+    """
+    conn = _connect(db_path)
+    start, end = _month_bounds(year_month)
+    rows = conn.execute(_BASE_QUERY + " AND pin.salesperson_code = ?",
+                        (start, end, salesperson_code)).fetchall()
+    out = [dict(r) for r in rows]
+    # Resolve fallback brand_kind for any NULL rows so the template doesn't
+    # have to handle Nones.
+    for r in out:
+        if not r['brand_kind']:
+            r['brand_kind'] = classify_brand_kind(r['product_name_raw'] or '')
+    out.sort(key=lambda r: (r['receipt_date'] or '', r['invoice_no']), reverse=True)
     conn.close()
     return out

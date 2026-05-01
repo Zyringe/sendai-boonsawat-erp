@@ -1473,6 +1473,12 @@ def api_product_barcodes(product_id):
 # ── Commission / Express AR-AP dashboards ───────────────────────────────────
 import commission as commission_mod  # noqa: E402
 
+# Make import_express's machinery available to the upload form. We inject
+# our own DB connection so the import shares this app's transaction
+# semantics (lights-on FK off etc).
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
+import import_express as express_importer  # noqa: E402
+
 
 def _months_with_payment_activity():
     """Distinct YYYY-MM strings present in express_payments_in (non-void)."""
@@ -1538,6 +1544,48 @@ def commission_dashboard():
                            summary=summary)
 
 
+@app.route('/commission/sp/<sp_code>')
+def commission_drilldown(sp_code):
+    months = _months_with_payment_activity()
+    year_month = request.args.get('month') or (months[0] if months else '')
+    if not year_month:
+        return render_template('commission_drilldown.html',
+                               sp_code=sp_code, sp_name=sp_code, year_month='',
+                               lines=[], invoices=[], months=months, summary=None)
+    lines = commission_mod.get_lines_for_salesperson(year_month, sp_code)
+    summary_rows = commission_mod.get_commission_for_month(year_month, sp_code)
+    summary = summary_rows[0] if summary_rows else None
+    # Group lines by invoice for nicer display
+    inv_map = {}
+    for ln in lines:
+        inv = inv_map.setdefault(ln['invoice_no'], {
+            'invoice_no': ln['invoice_no'],
+            'receipt_no': ln['receipt_no'],
+            'receipt_date': ln['receipt_date'],
+            'customer_name': ln['customer_name'],
+            'lines': [],
+            'own_net': 0.0,
+            'third_net': 0.0,
+        })
+        inv['lines'].append(ln)
+        if ln['brand_kind'] == 'own':
+            inv['own_net'] += ln['line_net'] or 0
+        else:
+            inv['third_net'] += ln['line_net'] or 0
+    invoices = sorted(inv_map.values(),
+                      key=lambda i: (i['receipt_date'] or '', i['invoice_no']),
+                      reverse=True)
+    conn = get_connection()
+    sp_row = conn.execute('SELECT name FROM salespersons WHERE code = ?',
+                          (sp_code,)).fetchone()
+    conn.close()
+    sp_name = sp_row['name'] if sp_row else sp_code
+    return render_template('commission_drilldown.html',
+                           sp_code=sp_code, sp_name=sp_name,
+                           year_month=year_month, months=months,
+                           invoices=invoices, summary=summary)
+
+
 @app.route('/commission/export')
 def commission_export():
     year_month = request.args.get('month') or ''
@@ -1564,6 +1612,53 @@ def commission_export():
     return send_file(io.BytesIO(out), mimetype='text/csv',
                      as_attachment=True,
                      download_name=f'commission_{year_month}.csv')
+
+
+@app.route('/express/import', methods=['GET', 'POST'])
+def express_import():
+    """Upload & import a weekly Express export."""
+    if request.method == 'POST':
+        file_type = request.form.get('file_type', '').strip()
+        company_code = request.form.get('company', 'BSN').strip()
+        upload = request.files.get('file')
+
+        if file_type not in ('credit_notes', 'payments_in', 'ar_snapshot',
+                             'payments_out', 'sales'):
+            flash('เลือกประเภทไฟล์ไม่ถูก', 'danger')
+            return redirect(url_for('express_import'))
+        if not upload or not upload.filename:
+            flash('ไม่ได้แนบไฟล์', 'danger')
+            return redirect(url_for('express_import'))
+
+        upload_dir = os.path.join(app.config['UPLOAD_FOLDER'], 'express')
+        os.makedirs(upload_dir, exist_ok=True)
+        from datetime import datetime as _dt
+        ts = _dt.now().strftime('%Y%m%d_%H%M%S')
+        safe_name = f'{ts}_{file_type}_{upload.filename}'
+        save_path = os.path.join(upload_dir, safe_name)
+        upload.save(save_path)
+
+        try:
+            express_importer.run_import(file_type, save_path,
+                                        company_code=company_code,
+                                        dry_run=False)
+            flash(f'นำเข้า {file_type} สำเร็จ — ไฟล์: {upload.filename}', 'success')
+        except Exception as e:
+            flash(f'นำเข้าไม่สำเร็จ: {e}', 'danger')
+        return redirect(url_for('express_import'))
+
+    # GET — list recent batches + show form
+    conn = get_connection()
+    batches = conn.execute("""
+        SELECT id, file_type, source_filename, record_count, line_count,
+               snapshot_date_iso, status, imported_at
+          FROM express_import_log
+         ORDER BY id DESC
+         LIMIT 20
+    """).fetchall()
+    conn.close()
+    return render_template('express_import.html',
+                           batches=[dict(r) for r in batches])
 
 
 @app.route('/express/ar')

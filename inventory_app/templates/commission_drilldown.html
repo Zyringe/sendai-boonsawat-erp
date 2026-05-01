@@ -1,0 +1,100 @@
+{% extends 'base.html' %}
+{% block title %}Commission – {{ sp_name }}{% endblock %}
+{% block page_title %}Commission — {{ sp_name }} ({{ sp_code }}){% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3">
+  <a href="{{ url_for('commission_dashboard', month=year_month) }}" class="btn btn-sm btn-outline-secondary me-2">
+    <i class="bi bi-arrow-left"></i> กลับ Commission
+  </a>
+  <form method="get" class="d-inline">
+    <select name="month" class="form-select form-select-sm" onchange="this.form.submit()" style="width:auto">
+      {% for m in months %}
+      <option value="{{ m }}" {% if m == year_month %}selected{% endif %}>{{ m }}</option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
+
+{% if summary %}
+<div class="row g-3 mb-3">
+  <div class="col-md-3">
+    <div class="card"><div class="card-body">
+      <div class="text-subtle small">Tier</div>
+      <div class="fs-4 fw-600">
+        <span class="badge {% if summary.tier_code=='A' %}bg-primary{% elif summary.tier_code=='B' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">{{ summary.tier_code }}</span>
+      </div>
+    </div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="card"><div class="card-body">
+      <div class="text-subtle small">Own brands</div>
+      <div class="fs-4 fw-600 font-mono">{{ '{:,.2f}'.format(summary.own_net) }}</div>
+    </div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="card"><div class="card-body">
+      <div class="text-subtle small">3rd-party</div>
+      <div class="fs-4 fw-600 font-mono">{{ '{:,.2f}'.format(summary.third_net) }}</div>
+    </div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="card"><div class="card-body">
+      <div class="text-subtle small">Commission รวม</div>
+      <div class="fs-4 fw-600 font-mono text-success">{{ '{:,.2f}'.format(summary.total_commission) }}</div>
+    </div></div>
+  </div>
+</div>
+{% endif %}
+
+<h5 class="mt-4 mb-2 px-1">Invoices ที่จ่ายในเดือน {{ year_month }} — {{ invoices|length }} ใบ</h5>
+
+{% for inv in invoices %}
+<div class="card mb-3">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center">
+    <div>
+      <span class="font-mono small text-subtle">{{ inv.receipt_date }}</span>
+      <span class="font-mono ms-2"><strong>{{ inv.invoice_no }}</strong></span>
+      <span class="ms-3">{{ inv.customer_name }}</span>
+    </div>
+    <div class="text-end">
+      <span class="badge bg-primary me-1" title="own">{{ '{:,.0f}'.format(inv.own_net) }}</span>
+      <span class="badge bg-secondary" title="third">{{ '{:,.0f}'.format(inv.third_net) }}</span>
+      <span class="ms-2 small text-subtle">via {{ inv.receipt_no }}</span>
+    </div>
+  </div>
+  <div class="table-responsive">
+    <table class="table mb-0 small">
+      <thead>
+        <tr>
+          <th class="text-center">#</th>
+          <th>สินค้า</th>
+          <th class="text-center">brand</th>
+          <th class="text-end">qty</th>
+          <th class="text-end">net</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ln in inv.lines %}
+        <tr>
+          <td class="text-center text-subtle">{{ loop.index }}</td>
+          <td>{{ ln.product_name_raw }}
+            <span class="text-subtle font-mono small ms-1">/{{ ln.product_code }}</span>
+          </td>
+          <td class="text-center">
+            <span class="badge {% if ln.brand_kind == 'own' %}bg-primary{% else %}bg-secondary{% endif %}">{{ ln.brand_kind }}</span>
+          </td>
+          <td class="text-end font-mono">{{ '{:,.2f}'.format(ln.qty or 0) }}</td>
+          <td class="text-end font-mono">{{ '{:,.2f}'.format(ln.line_net or 0) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="card"><div class="card-body text-center text-subtle py-5">
+  ไม่มี invoice ที่จ่ายในเดือนนี้
+</div></div>
+{% endfor %}
+{% endblock %}

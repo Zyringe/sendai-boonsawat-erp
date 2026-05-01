@@ -73,8 +73,11 @@
         {% for r in rows %}
         <tr {% if r.tier_code == 'C' and r.total_net == 0 %}class="text-subtle"{% endif %}>
           <td class="td-primary fw-500">
-            {{ r.salesperson_name or r.salesperson_code }}
-            <span class="d-mobile-only badge badge-gray font-mono ms-1">{{ r.salesperson_code }}</span>
+            <a href="{{ url_for('commission_drilldown', sp_code=r.salesperson_code, month=year_month) }}" class="text-reset text-decoration-none">
+              {{ r.salesperson_name or r.salesperson_code }}
+              <span class="d-mobile-only badge badge-gray font-mono ms-1">{{ r.salesperson_code }}</span>
+              <i class="bi bi-chevron-right small text-subtle"></i>
+            </a>
           </td>
           <td data-label="Tier" class="text-center">
             <span class="badge {% if r.tier_code == 'A' %}bg-primary
