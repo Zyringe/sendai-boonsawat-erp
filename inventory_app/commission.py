@@ -107,36 +107,102 @@ _BASE_QUERY = """
            es.total              AS line_total,
            es.qty                AS qty,
            es.unit_price         AS unit_price,
-           cpo.id                AS override_id,
-           cpo.fixed_per_unit    AS override_per_unit,
-           cpo.apply_when_price_gt  AS override_price_gt,
-           cpo.apply_when_price_lte AS override_price_lte
+           pcm.product_id        AS sendy_product_id,
+           p.brand_id            AS sendy_brand_id
       FROM express_payments_in    pin
       JOIN express_payment_in_invoice_refs ref ON ref.payment_in_id = pin.id
       JOIN express_sales          es  ON es.doc_no = ref.invoice_no
       LEFT JOIN product_code_mapping pcm ON pcm.bsn_code = es.product_code
-      LEFT JOIN commission_product_overrides cpo
-             ON cpo.product_id = pcm.product_id
-            AND cpo.is_active = 1
-            AND (cpo.salesperson_code IS NULL OR cpo.salesperson_code = pin.salesperson_code)
+      LEFT JOIN products          p   ON p.id = pcm.product_id
      WHERE pin.is_void = 0
        AND pin.date_iso BETWEEN ? AND ?
        AND pin.salesperson_code <> ''
 """
 
 
-def _override_commission(line):
-    """Return override commission for a sales-line dict, or None if the
-    override does not apply (no override row, freebie, or price out of range)."""
-    if not line.get('override_id'):
-        return None
-    price = line.get('unit_price') or 0
+_OVERRIDES_CACHE = None
+
+
+def _load_overrides(db_path=None):
+    """All active overrides as a list of dicts. Cached per process — call
+    _clear_override_cache() if rules change at runtime."""
+    global _OVERRIDES_CACHE
+    if _OVERRIDES_CACHE is None:
+        conn = _connect(db_path)
+        rows = conn.execute("""
+            SELECT id, product_id, brand_id, salesperson_code,
+                   fixed_per_unit, custom_rate_pct,
+                   apply_when_price_gt, apply_when_price_lte
+              FROM commission_overrides
+             WHERE is_active = 1
+        """).fetchall()
+        conn.close()
+        _OVERRIDES_CACHE = [dict(r) for r in rows]
+    return _OVERRIDES_CACHE
+
+
+def clear_override_cache():
+    global _OVERRIDES_CACHE
+    _OVERRIDES_CACHE = None
+
+
+def _resolve_override(line, overrides):
+    """Find best-matching override for a line and return (commission, label)
+    or (None, None) if none applies. Priority: product-level > brand-level.
+    Salesperson-specific > generic."""
+    product_id = line.get('sendy_product_id')
+    brand_id = line.get('sendy_brand_id')
+    sp_code = line.get('salesperson_code')
     qty = line.get('qty') or 0
-    gt = line.get('override_price_gt') or 0
-    lte = line.get('override_price_lte') or 0
-    if price <= gt or price > lte or qty <= 0:
-        return None
-    return round(qty * (line.get('override_per_unit') or 0), 2)
+    price = line.get('unit_price') or 0
+    net = line.get('line_net') or 0
+
+    # Score candidates: product > brand; sp-specific > generic
+    candidates = []
+    for o in overrides:
+        if o['salesperson_code'] and o['salesperson_code'] != sp_code:
+            continue
+        score = 0
+        if o['product_id'] is not None and o['product_id'] == product_id:
+            score = 10
+        elif o['brand_id'] is not None and o['brand_id'] == brand_id and brand_id is not None:
+            score = 5
+        else:
+            continue
+        if o['salesperson_code']:
+            score += 1
+        candidates.append((score, o))
+
+    if not candidates:
+        return None, None
+    candidates.sort(key=lambda c: -c[0])
+    o = candidates[0][1]
+
+    # Price gate
+    gt = o['apply_when_price_gt'] or 0
+    lte = o['apply_when_price_lte']
+    if price <= gt:
+        return None, None
+    if lte is not None and price > lte:
+        return None, None
+    if qty <= 0:
+        return None, None
+
+    if o['custom_rate_pct'] is not None:
+        amt = round(net * (o['custom_rate_pct'] / 100.0), 2)
+        label = f"{o['custom_rate_pct']:.1f}% (override)"
+        return amt, label
+    if o['fixed_per_unit'] is not None:
+        amt = round(qty * o['fixed_per_unit'], 2)
+        label = f"฿{o['fixed_per_unit']:.2f}/หน่วย"
+        return amt, label
+    return None, None
+
+
+def _override_commission(line):
+    """Backward-compat shim: just the commission, not the label."""
+    amt, _ = _resolve_override(line, _load_overrides())
+    return amt
 
 
 def _month_bounds(year_month):
@@ -503,20 +569,13 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
                es.net               AS line_net,
                es.brand_kind,
                m.product_id         AS sendy_product_id,
-               cpo.fixed_per_unit   AS override_per_unit,
-               cpo.apply_when_price_gt   AS override_price_gt,
-               cpo.apply_when_price_lte  AS override_price_lte,
-               cpo.id               AS override_id
+               p.brand_id           AS sendy_brand_id
           FROM express_sales es
           LEFT JOIN product_code_mapping m ON m.bsn_code = es.product_code
           LEFT JOIN products p ON p.id = m.product_id
-          LEFT JOIN commission_product_overrides cpo
-                 ON cpo.product_id = m.product_id
-                AND cpo.is_active = 1
-                AND (cpo.salesperson_code IS NULL OR cpo.salesperson_code = ?)
          WHERE es.doc_no = ?
          ORDER BY es.line_no
-    """, (salesperson_code, invoice_no)).fetchall()
+    """, (invoice_no,)).fetchall()
 
     # Tier rates
     tier = conn.execute("""
@@ -545,15 +604,17 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
         rate_own = rate_third = 0
         tier_code = '?'
 
+    overrides = _load_overrides(db_path)
     out_rows = []
     for r in rows:
         kind = r['brand_kind'] or classify_brand_kind(r['product_name_raw'] or '')
         rate_pct = rate_own if kind == 'own' else rate_third
         line = dict(r)
-        ov = _override_commission(line)
-        if ov is not None:
-            commission = ov
-            rate_label = f'฿{r["override_per_unit"]:.2f}/หน่วย'
+        line['salesperson_code'] = salesperson_code
+        ov_amt, ov_label = _resolve_override(line, overrides)
+        if ov_amt is not None:
+            commission = ov_amt
+            rate_label = ov_label
         else:
             commission = round((r['line_net'] or 0) * rate_pct / 100.0, 2)
             rate_label = f'{rate_pct:.1f}%'
@@ -570,7 +631,7 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
             'rate_label':         rate_label,
             'commission':         commission,
             'sendy_product_id':   r['sendy_product_id'],
-            'is_override':        ov is not None,
+            'is_override':        ov_amt is not None,
         })
 
     header = {
