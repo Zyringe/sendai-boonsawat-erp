@@ -77,6 +77,19 @@
           <i class="bi bi-upload"></i> อัพโหลด
         </button>
       </div>
+      <div class="col-12">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="incremental"
+                 id="incremental" value="1" checked>
+          <label class="form-check-label small" for="incremental">
+            <strong>Incremental mode</strong> — ข้ามเอกสาร (doc_no) ที่มีอยู่ใน DB แล้ว
+            <span class="text-subtle">
+              (default + แนะนำ: รักษาการแก้ไข manual ไว้ เช่น customer reassignment.
+              ปิดเฉพาะตอนต้องการ re-import แทนของเก่า — อาจสร้าง duplicate)
+            </span>
+          </label>
+        </div>
+      </div>
     </form>
   </div>
 </div>

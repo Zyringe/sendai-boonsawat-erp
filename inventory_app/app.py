@@ -1806,6 +1806,10 @@ def express_import():
     if request.method == 'POST':
         file_type = request.form.get('file_type', '').strip()
         company_code = request.form.get('company', 'BSN').strip()
+        # Default = incremental (skip doc_no already in DB) — safer for
+        # repeated weekly uploads. Uncheck to force full re-import (may
+        # create duplicates).
+        incremental = bool(request.form.get('incremental'))
         upload = request.files.get('file')
 
         if file_type not in ('credit_notes', 'payments_in', 'ar_snapshot',
@@ -1827,8 +1831,10 @@ def express_import():
         try:
             express_importer.run_import(file_type, save_path,
                                         company_code=company_code,
-                                        dry_run=False)
-            flash(f'นำเข้า {file_type} สำเร็จ — ไฟล์: {upload.filename}', 'success')
+                                        dry_run=False,
+                                        incremental=incremental)
+            mode = 'incremental (ข้ามรายการซ้ำ)' if incremental else 'full (รวมรายการซ้ำ)'
+            flash(f'นำเข้า {file_type} ({mode}) สำเร็จ — ไฟล์: {upload.filename}', 'success')
         except Exception as e:
             flash(f'นำเข้าไม่สำเร็จ: {e}', 'danger')
         return redirect(url_for('express_import'))

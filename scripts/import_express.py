@@ -71,10 +71,19 @@ def _product_id_by_code(conn, code):
 
 
 # ── per-file-type writers ────────────────────────────────────────────────────
-def _import_credit_notes(conn, path, batch_id, company_id):
+def _existing_doc_nos(conn, table):
+    return {r[0] for r in conn.execute(f'SELECT doc_no FROM {table}').fetchall()}
+
+
+def _import_credit_notes(conn, path, batch_id, company_id, incremental=True):
     records = list(p_cn.parse_credit_notes(path))
+    skip = _existing_doc_nos(conn, 'express_credit_notes') if incremental else set()
+    skipped = 0
     line_count = 0
     for r in records:
+        if r.doc_no in skip:
+            skipped += 1
+            continue
         cur = conn.execute("""
             INSERT INTO express_credit_notes
                 (batch_id, doc_no, date_iso, company_id, supplier_name, supplier_id,
@@ -102,13 +111,18 @@ def _import_credit_notes(conn, path, batch_id, company_id):
                 ln.discount, ln.line_total, int(ln.is_cleared),
             ))
             line_count += 1
-    return len(records), line_count
+    return len(records) - skipped, line_count
 
 
-def _import_payments_in(conn, path, batch_id, company_id):
+def _import_payments_in(conn, path, batch_id, company_id, incremental=True):
     records = list(p_pin.parse_payments_in(path))
+    skip = _existing_doc_nos(conn, 'express_payments_in') if incremental else set()
+    skipped = 0
     line_count = 0
     for r in records:
+        if r.doc_no in skip:
+            skipped += 1
+            continue
         customer_code = _customer_code_by_name(conn, r.customer_name)
         cur = conn.execute("""
             INSERT INTO express_payments_in
@@ -138,10 +152,14 @@ def _import_payments_in(conn, path, batch_id, company_id):
                 VALUES (?, ?, ?, ?)
             """, (pid, ref.invoice_no, ref.invoice_date_iso, ref.amount))
             line_count += 1
-    return len(records), line_count
+    return len(records) - skipped, line_count
 
 
-def _import_ar_snapshot(conn, path, batch_id, company_id):
+def _import_ar_snapshot(conn, path, batch_id, company_id, incremental=True):
+    """ar_snapshot is always a full snapshot — incremental flag ignored.
+    Each call inserts the latest snapshot under a new batch (the engine
+    queries MAX(snapshot_date_iso) so old batches are naturally
+    superseded for display)."""
     records = list(p_ar.parse_ar_snapshot(path))
     # Snapshot date is the latest doc_date_iso in the batch (reasonable default).
     # If empty, use today.
@@ -174,10 +192,15 @@ def _import_ar_snapshot(conn, path, batch_id, company_id):
     return len(records), 0
 
 
-def _import_payments_out(conn, path, batch_id, company_id):
+def _import_payments_out(conn, path, batch_id, company_id, incremental=True):
     records = list(p_pout.parse_payments_out(path))
+    skip = _existing_doc_nos(conn, 'express_payments_out') if incremental else set()
+    skipped = 0
     line_count = 0
     for r in records:
+        if r.doc_no in skip:
+            skipped += 1
+            continue
         cur = conn.execute("""
             INSERT INTO express_payments_out
                 (batch_id, doc_no, date_iso, company_id,
@@ -205,12 +228,21 @@ def _import_payments_out(conn, path, batch_id, company_id):
                 VALUES (?, ?, ?, ?, ?)
             """, (pid, ref.receive_doc, ref.receive_date_iso, ref.invoice_ref, ref.amount))
             line_count += 1
-    return len(records), line_count
+    return len(records) - skipped, line_count
 
 
-def _import_sales(conn, path, batch_id, company_id):
+def _import_sales(conn, path, batch_id, company_id, incremental=True):
     records = list(p_sales.parse_sales(path))
+    # sales: dedupe by (doc_no, line_no) since one invoice has many lines
+    skip = set()
+    if incremental:
+        skip = {(r[0], r[1]) for r in conn.execute(
+            'SELECT doc_no, line_no FROM express_sales').fetchall()}
+    skipped = 0
     for r in records:
+        if (r.doc_no, r.line_no) in skip:
+            skipped += 1
+            continue
         # Doc-type prefix from doc_no
         doc_type = r.doc_no[:2]
         customer_code = (r.customer_code or '').strip()
@@ -237,7 +269,7 @@ def _import_sales(conn, path, batch_id, company_id):
             r.qty, r.unit, r.return_flag, r.unit_price, r.vat_type,
             r.discount, r.total, r.total_discount, r.net, r.ref_doc, int(r.is_warning),
         ))
-    return len(records), 0
+    return len(records) - skipped, 0
 
 
 _IMPORTERS = {
@@ -250,7 +282,7 @@ _IMPORTERS = {
 
 
 # ── orchestration ────────────────────────────────────────────────────────────
-def run_import(file_type, path, company_code='BSN', dry_run=False):
+def run_import(file_type, path, company_code='BSN', dry_run=False, incremental=True):
     if file_type not in _IMPORTERS:
         raise SystemExit(f'unknown file_type {file_type!r} — pick from {sorted(_IMPORTERS)}')
 
@@ -286,7 +318,8 @@ def run_import(file_type, path, company_code='BSN', dry_run=False):
     batch_id = cur.lastrowid
 
     try:
-        record_count, line_count = _IMPORTERS[file_type](conn, path, batch_id, company_id)
+        record_count, line_count = _IMPORTERS[file_type](
+            conn, path, batch_id, company_id, incremental=incremental)
         conn.execute("""
             UPDATE express_import_log
             SET record_count = ?, line_count = ?
@@ -308,8 +341,11 @@ def main():
     ap.add_argument('path', type=Path)
     ap.add_argument('--company', default='BSN', help='company code (BSN or STD)')
     ap.add_argument('--dry-run', action='store_true')
+    ap.add_argument('--full', action='store_true',
+                    help='disable incremental dedup (re-imports duplicate doc_no)')
     args = ap.parse_args()
-    run_import(args.file_type, args.path, args.company, args.dry_run)
+    run_import(args.file_type, args.path, args.company, args.dry_run,
+               incremental=not args.full)
 
 
 if __name__ == '__main__':
