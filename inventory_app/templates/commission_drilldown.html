@@ -344,7 +344,7 @@
           <tbody>
             {% for p in payouts %}
             <tr {% if p.paid_method == 'auto' %}class="text-subtle"{% endif %}>
-              <td><span class="badge bg-light text-dark font-mono">{{ p.year_month }}</span></td>
+              <td class="font-mono small">{{ p.paid_date }}</td>
               <td class="font-mono small">{{ p.invoice_date or '—' }}</td>
               <td class="font-mono small">
                 {% if p.invoice_no %}
