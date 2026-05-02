@@ -105,14 +105,38 @@ _BASE_QUERY = """
            es.brand_kind         AS brand_kind,
            es.net                AS line_net,
            es.total              AS line_total,
-           es.qty                AS qty
+           es.qty                AS qty,
+           es.unit_price         AS unit_price,
+           cpo.id                AS override_id,
+           cpo.fixed_per_unit    AS override_per_unit,
+           cpo.apply_when_price_gt  AS override_price_gt,
+           cpo.apply_when_price_lte AS override_price_lte
       FROM express_payments_in    pin
       JOIN express_payment_in_invoice_refs ref ON ref.payment_in_id = pin.id
       JOIN express_sales          es  ON es.doc_no = ref.invoice_no
+      LEFT JOIN product_code_mapping pcm ON pcm.bsn_code = es.product_code
+      LEFT JOIN commission_product_overrides cpo
+             ON cpo.product_id = pcm.product_id
+            AND cpo.is_active = 1
+            AND (cpo.salesperson_code IS NULL OR cpo.salesperson_code = pin.salesperson_code)
      WHERE pin.is_void = 0
        AND pin.date_iso BETWEEN ? AND ?
        AND pin.salesperson_code <> ''
 """
+
+
+def _override_commission(line):
+    """Return override commission for a sales-line dict, or None if the
+    override does not apply (no override row, freebie, or price out of range)."""
+    if not line.get('override_id'):
+        return None
+    price = line.get('unit_price') or 0
+    qty = line.get('qty') or 0
+    gt = line.get('override_price_gt') or 0
+    lte = line.get('override_price_lte') or 0
+    if price <= gt or price > lte or qty <= 0:
+        return None
+    return round(qty * (line.get('override_per_unit') or 0), 2)
 
 
 def _month_bounds(year_month):
@@ -155,10 +179,16 @@ def get_commission_for_month(year_month, salesperson_code=None, db_path=None):
     # per-invoice rounded commissions (otherwise rounding accumulates and
     # the dashboard "remaining" shows ±0.02 even when every invoice has
     # been paid in full).
+    #
+    # Lines that match a commission_product_overrides rule contribute to
+    # `override_inv[sp][inv]` instead of own/third (so the per-invoice
+    # commission uses the fixed-per-unit amount, not the tier rate).
+    # They still count toward monthly_net for Tier B threshold checks.
     own = defaultdict(float)
     third = defaultdict(float)
-    own_inv = defaultdict(lambda: defaultdict(float))     # own_inv[sp][invoice_no]
+    own_inv = defaultdict(lambda: defaultdict(float))
     third_inv = defaultdict(lambda: defaultdict(float))
+    override_inv = defaultdict(lambda: defaultdict(float))   # override_inv[sp][inv] = THB commission
     receipts = defaultdict(set)
     invoices = defaultdict(set)
     line_count = defaultdict(int)
@@ -168,7 +198,17 @@ def get_commission_for_month(year_month, salesperson_code=None, db_path=None):
         inv_no = r['invoice_no']
         kind = r['brand_kind'] or classify_brand_kind(r['product_name_raw'] or '')
         net = r['line_net'] or 0.0
-        if kind == 'own':
+        line = dict(r)
+        ov = _override_commission(line)
+        if ov is not None:
+            override_inv[sp][inv_no] += ov
+            # Net still counted (for monthly threshold) but kind goes to
+            # the appropriate bucket so monthly own/third stays correct.
+            if kind == 'own':
+                own[sp] += net
+            else:
+                third[sp] += net
+        elif kind == 'own':
             own[sp] += net
             own_inv[sp][inv_no] += net
         else:
@@ -200,14 +240,18 @@ def get_commission_for_month(year_month, salesperson_code=None, db_path=None):
             r_third = tier['rate_third_pct'] / 100.0
 
             # Per-invoice base commission — sum of (own_inv × r_own +
-            # third_inv × r_third) rounded each. This is the canonical
-            # base value: it always equals what the user pays when ticking
-            # every invoice on the drill-down.
-            invoice_keys = set(own_inv[sp].keys()) | set(third_inv[sp].keys())
+            # third_inv × r_third + override) rounded each. This is the
+            # canonical base value: it always equals what the user pays
+            # when ticking every invoice on the drill-down.
+            invoice_keys = (set(own_inv[sp].keys())
+                            | set(third_inv[sp].keys())
+                            | set(override_inv[sp].keys()))
             base_per_invoice = 0.0
             for inv_key in invoice_keys:
                 base_per_invoice += round(
-                    own_inv[sp][inv_key] * r_own + third_inv[sp][inv_key] * r_third, 2,
+                    own_inv[sp][inv_key] * r_own + third_inv[sp][inv_key] * r_third
+                    + override_inv[sp][inv_key],
+                    2,
                 )
 
             if threshold is None or total_net <= threshold or threshold == 0:
@@ -447,6 +491,7 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
     # Look up Sendy product_id via product_code_mapping (BSN/Express share
     # the same product code system — 99.9% of Express codes are already
     # mapped). Falls back to NULL only for genuinely unmapped codes.
+    # Also peek for any product-level commission override.
     rows = conn.execute("""
         SELECT es.product_code,
                es.product_name_raw,
@@ -455,12 +500,20 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
                es.unit_price,
                es.net               AS line_net,
                es.brand_kind,
-               m.product_id         AS sendy_product_id
+               m.product_id         AS sendy_product_id,
+               cpo.fixed_per_unit   AS override_per_unit,
+               cpo.apply_when_price_gt   AS override_price_gt,
+               cpo.apply_when_price_lte  AS override_price_lte,
+               cpo.id               AS override_id
           FROM express_sales es
           LEFT JOIN product_code_mapping m ON m.bsn_code = es.product_code
+          LEFT JOIN commission_product_overrides cpo
+                 ON cpo.product_id = m.product_id
+                AND cpo.is_active = 1
+                AND (cpo.salesperson_code IS NULL OR cpo.salesperson_code = ?)
          WHERE es.doc_no = ?
          ORDER BY es.line_no
-    """, (invoice_no,)).fetchall()
+    """, (salesperson_code, invoice_no)).fetchall()
 
     # Tier rates
     tier = conn.execute("""
@@ -493,7 +546,14 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
     for r in rows:
         kind = r['brand_kind'] or classify_brand_kind(r['product_name_raw'] or '')
         rate_pct = rate_own if kind == 'own' else rate_third
-        commission = round((r['line_net'] or 0) * rate_pct / 100.0, 2)
+        line = dict(r)
+        ov = _override_commission(line)
+        if ov is not None:
+            commission = ov
+            rate_label = f'฿{r["override_per_unit"]:.2f}/หน่วย'
+        else:
+            commission = round((r['line_net'] or 0) * rate_pct / 100.0, 2)
+            rate_label = f'{rate_pct:.1f}%'
         out_rows.append({
             'product_code':     r['product_code'],
             'product_name_raw': r['product_name_raw'],
@@ -503,8 +563,10 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
             'line_net':         r['line_net'],
             'brand_kind':       kind,
             'rate_pct':         rate_pct,
+            'rate_label':       rate_label,
             'commission':       commission,
             'sendy_product_id': r['sendy_product_id'],
+            'is_override':      ov is not None,
         })
 
     header = {
@@ -537,7 +599,7 @@ def get_invoice_commission_for_sp(year_month, salesperson_code, db_path=None):
     """
     lines = get_lines_for_salesperson(year_month, salesperson_code, db_path)
 
-    # Group by invoice_no, aggregating own/third nets
+    # Group by invoice_no, aggregating own/third nets + override commission
     inv = {}
     for ln in lines:
         v = inv.setdefault(ln['invoice_no'], {
@@ -548,11 +610,22 @@ def get_invoice_commission_for_sp(year_month, salesperson_code, db_path=None):
             'customer_name': ln['customer_name'],
             'own_net':      0.0,
             'third_net':    0.0,
+            'override_commission': 0.0,
         })
-        if ln['brand_kind'] == 'own':
-            v['own_net'] += ln['line_net'] or 0
+        ov = _override_commission(ln)
+        net = ln['line_net'] or 0
+        if ov is not None:
+            v['override_commission'] += ov
+            # net still tracked under brand kind for display but engine
+            # uses override for commission calculation
+            if ln['brand_kind'] == 'own':
+                v['own_net'] += net
+            else:
+                v['third_net'] += net
+        elif ln['brand_kind'] == 'own':
+            v['own_net'] += net
         else:
-            v['third_net'] += ln['line_net'] or 0
+            v['third_net'] += net
 
     # Fetch invoice issue dates from express_sales (any line of the invoice carries date_iso)
     if inv:
@@ -589,7 +662,11 @@ def get_invoice_commission_for_sp(year_month, salesperson_code, db_path=None):
 
     out = []
     for v in inv.values():
-        commission_due = round(v['own_net'] * rate_own + v['third_net'] * rate_third, 2)
+        commission_due = round(
+            v['own_net'] * rate_own + v['third_net'] * rate_third
+            + v.get('override_commission', 0),
+            2,
+        )
         total_net = round(v['own_net'] + v['third_net'], 2)
         paid = paid_map.get(v['invoice_no'], 0.0)
         remaining = round(commission_due - paid, 2)

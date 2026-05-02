@@ -74,7 +74,11 @@
           <td class="text-center">
             <span class="badge {% if ln.brand_kind == 'own' %}bg-primary{% else %}bg-secondary{% endif %}">{{ ln.brand_kind }}</span>
           </td>
-          <td class="text-end font-mono small">{{ '%.1f'|format(ln.rate_pct) }}%</td>
+          <td class="text-end font-mono small">
+            {% if ln.is_override %}
+              <span class="badge bg-warning text-dark" title="override commission">{{ ln.rate_label }}</span>
+            {% else %}{{ ln.rate_label }}{% endif %}
+          </td>
           <td class="text-end font-mono fw-600 text-success">{{ '{:,.2f}'.format(ln.commission) }}</td>
           <td class="text-center">
             {% if ln.sendy_product_id %}
