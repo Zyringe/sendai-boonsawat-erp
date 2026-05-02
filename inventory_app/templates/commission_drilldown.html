@@ -99,7 +99,12 @@
             <label class="form-label small mb-1 d-block">หมายเหตุ</label>
             <input type="text" name="note" class="form-control form-control-sm" placeholder="optional">
           </div>
-          <button type="submit" class="btn btn-success btn-sm">
+          <div class="ms-auto text-end">
+            <div class="text-subtle small">รวมที่ติ๊ก</div>
+            <div class="fs-5 fw-600 font-mono text-success" id="ticked-sum">฿0.00</div>
+            <div class="text-subtle small"><span id="ticked-count">0</span> ใบ</div>
+          </div>
+          <button type="submit" class="btn btn-success btn-sm align-self-end">
             <i class="bi bi-check2-circle"></i> บันทึก commission ที่ติ๊ก
           </button>
         </div>
@@ -142,7 +147,8 @@
               <tr>
                 <td class="text-center">
                   {% if inv.remaining > 0.01 %}
-                  <input type="checkbox" name="invoice_no" value="{{ inv.invoice_no }}" class="inv-check">
+                  <input type="checkbox" name="invoice_no" value="{{ inv.invoice_no }}"
+                         class="inv-check" data-amount="{{ '%.2f'|format(inv.remaining) }}">
                   {# remaining sent as the implicit amount when ticked #}
                   <input type="hidden" name="amount_{{ inv.invoice_no }}" value="{{ '%.2f'|format(inv.remaining) }}">
                   {% endif %}
@@ -194,10 +200,26 @@
     <script>
     (function(){
       const all = document.getElementById('check-all-inv');
-      if (!all) return;
-      all.addEventListener('change', function(){
+      const sumEl = document.getElementById('ticked-sum');
+      const countEl = document.getElementById('ticked-count');
+      const fmt = n => '฿' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+      function recalc() {
+        let sum = 0, n = 0;
+        document.querySelectorAll('.inv-check:checked').forEach(cb => {
+          sum += parseFloat(cb.dataset.amount || '0');
+          n++;
+        });
+        if (sumEl) sumEl.textContent = fmt(sum);
+        if (countEl) countEl.textContent = n;
+      }
+
+      if (all) all.addEventListener('change', function(){
         document.querySelectorAll('.inv-check').forEach(cb => { cb.checked = all.checked; });
+        recalc();
       });
+      document.querySelectorAll('.inv-check').forEach(cb => cb.addEventListener('change', recalc));
+      recalc();
     })();
     </script>
 
