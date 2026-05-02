@@ -137,8 +137,6 @@
                 <th class="text-end">3rd</th>
                 <th class="text-end">Total net</th>
                 <th class="text-end">{{ sort_link('commission_due', 'Commission') }}</th>
-                <th class="text-end">จ่ายแล้ว</th>
-                <th class="text-end">คงเหลือ</th>
                 <th class="text-center">สถานะ</th>
               </tr>
             </thead>
@@ -166,10 +164,6 @@
                 <td class="text-end font-mono small">{{ '{:,.2f}'.format(inv.third_net) }}</td>
                 <td class="text-end font-mono">{{ '{:,.2f}'.format(inv.total_net) }}</td>
                 <td class="text-end font-mono fw-600 text-success">{{ '{:,.2f}'.format(inv.commission_due) }}</td>
-                <td class="text-end font-mono">{{ '{:,.2f}'.format(inv.paid_amount) }}</td>
-                <td class="text-end font-mono {% if inv.remaining > 0.01 %}text-warning fw-600{% else %}text-subtle{% endif %}">
-                  {{ '{:,.2f}'.format(inv.remaining) }}
-                </td>
                 <td class="text-center">
                   {% if inv.paid_status == 'paid' %}
                     <span class="badge bg-success">จ่ายแล้ว</span>
@@ -187,8 +181,6 @@
                 <td colspan="7" class="text-end fw-600">รวม</td>
                 <td class="text-end font-mono fw-600">{{ '{:,.2f}'.format(invoice_commissions|sum(attribute='total_net')) }}</td>
                 <td class="text-end font-mono fw-600 text-success">{{ '{:,.2f}'.format(invoice_commissions|sum(attribute='commission_due')) }}</td>
-                <td class="text-end font-mono fw-600">{{ '{:,.2f}'.format(invoice_commissions|sum(attribute='paid_amount')) }}</td>
-                <td class="text-end font-mono fw-600 text-warning">{{ '{:,.2f}'.format(invoice_commissions|sum(attribute='remaining')) }}</td>
                 <td></td>
               </tr>
             </tbody>
