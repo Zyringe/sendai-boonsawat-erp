@@ -1742,6 +1742,11 @@ def commission_drilldown(sp_code):
     # need to see them when settling.
     invoice_commissions = commission_mod.get_invoice_commission_for_sp(
         year_month, sp_code, through_month=True, only_unpaid=True)
+    # Cumulative-remaining for the "คงเหลือ" summary card so it matches
+    # what Put would see in the tick-list (Put 2026-05-02). Per-month
+    # remaining was confusing because old-cycle carry-over wasn't
+    # reflected.
+    cumulative_remaining = sum(i['remaining'] for i in invoice_commissions)
 
     # Sort the per-invoice list per ?sort= and ?order= (default: receipt_date desc).
     sort_col = request.args.get('sort', 'receipt_date')
@@ -1768,6 +1773,7 @@ def commission_drilldown(sp_code):
                            all_invoices=all_invoices,
                            payouts=payouts,
                            paid_amount=paid_amount,
+                           cumulative_remaining=cumulative_remaining,
                            sort_col=sort_col, sort_order=sort_order,
                            today=date.today().isoformat())
 

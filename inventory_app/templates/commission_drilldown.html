@@ -44,9 +44,10 @@
     <div class="fs-5 fw-600 font-mono text-primary">{{ '{:,.2f}'.format(paid_amount or 0) }}</div>
   </div></div></div>
   <div class="col-md-2"><div class="card"><div class="card-body">
-    <div class="text-subtle small">คงเหลือ</div>
-    <div class="fs-5 fw-600 font-mono {% if (summary.total_commission - paid_amount) > 0.01 %}text-warning{% else %}text-subtle{% endif %}">
-      {{ '{:,.2f}'.format(summary.total_commission - paid_amount) }}
+    <div class="text-subtle small">คงเหลือ <span class="text-subtle" style="font-size:.7rem">(สะสมถึง {{ year_month }})</span></div>
+    <div class="fs-5 fw-600 font-mono {% if cumulative_remaining > 0.05 %}text-warning{% else %}text-subtle{% endif %}"
+         title="รวมหนี้ commission ที่ยังไม่จ่ายของทุก invoice ที่รับเงินถึงสิ้นเดือนนี้">
+      {{ '{:,.2f}'.format(cumulative_remaining) }}
     </div>
   </div></div></div>
 </div>
