@@ -732,10 +732,13 @@ def get_invoice_commission_for_sp(year_month, salesperson_code, db_path=None,
     lines = get_lines_for_salesperson(year_month, salesperson_code, db_path,
                                        through_month=through_month)
 
-    # Group by invoice_no. Track own_net/third_net for tier-rate lines
-    # ONLY — override lines contribute via override_commission and must
-    # NOT also be summed into own/third (else commission_due double-counts).
-    # display_net is the total invoice net for the table footer / cards.
+    # Group by invoice_no. Two parallel buckets:
+    #   tier_*  → only non-override lines. Used by the commission_due
+    #             formula so override lines don't get counted twice.
+    #   display_own/third_net → includes EVERY line (override + tier).
+    #             Used in the UI columns "Own" / "3rd" so Put sees the
+    #             real revenue split (e.g. แผ่นตัด สิงห์ทอง override
+    #             still IS own-brand revenue, just paid via override).
     inv = {}
     for ln in lines:
         v = inv.setdefault(ln['invoice_no'], {
@@ -744,21 +747,27 @@ def get_invoice_commission_for_sp(year_month, salesperson_code, db_path=None,
             'receipt_no':   ln['receipt_no'],
             'receipt_date': ln['receipt_date'],
             'customer_name': ln['customer_name'],
-            'own_net':      0.0,    # non-override own — used by tier rate
-            'third_net':    0.0,    # non-override third — used by tier rate
+            'own_net':       0.0,   # display: own revenue (incl. override)
+            'third_net':     0.0,   # display: third revenue (incl. override)
+            '_tier_own':     0.0,   # internal: own non-override (for tier formula)
+            '_tier_third':   0.0,   # internal: third non-override
             'override_commission': 0.0,
-            'display_net':  0.0,    # invoice total (incl. override lines)
+            'display_net':   0.0,
         })
         ov = _override_commission(ln)
         net = ln['line_net'] or 0
         v['display_net'] += net
-        if ov is not None:
-            v['override_commission'] += ov
-            # net does NOT go into own_net/third_net for the tier formula.
-        elif ln['brand_kind'] == 'own':
+        if ln['brand_kind'] == 'own':
             v['own_net'] += net
         else:
             v['third_net'] += net
+        if ov is not None:
+            v['override_commission'] += ov
+            # do NOT add net to _tier_own / _tier_third
+        elif ln['brand_kind'] == 'own':
+            v['_tier_own'] += net
+        else:
+            v['_tier_third'] += net
 
     # Fetch invoice issue dates from express_sales (any line of the invoice carries date_iso)
     if inv:
@@ -811,7 +820,8 @@ def get_invoice_commission_for_sp(year_month, salesperson_code, db_path=None,
     out = []
     for v in inv.values():
         commission_due = round(
-            v['own_net'] * rate_own + v['third_net'] * rate_third
+            v.get('_tier_own', 0) * rate_own
+            + v.get('_tier_third', 0) * rate_third
             + v.get('override_commission', 0),
             2,
         )
