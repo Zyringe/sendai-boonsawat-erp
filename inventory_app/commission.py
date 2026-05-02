@@ -655,6 +655,16 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
         tier_code = '?'
 
     overrides = _load_overrides(db_path)
+    # If the salesperson's tier is a zero-rate placeholder (Tier C — TBD),
+    # they earn no commission at all. Per-product / per-brand overrides
+    # are NOT meant to leak commission to those sps.
+    tier_pays_commission = (
+        tier is not None and (
+            (tier['rate_own_pct'] or 0) > 0
+            or (tier['rate_third_pct'] or 0) > 0
+            or (tier['threshold_amount'] or 0) > 0
+        )
+    )
     out_rows = []
     for r in rows:
         kind = r['brand_kind'] or classify_brand_kind(r['product_name_raw'] or '')
@@ -662,15 +672,20 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
         line = dict(r)
         line['salesperson_code'] = salesperson_code
 
-        rule = _resolve_override(line, overrides)
-        if rule is not None:
-            commission = _override_commission_from_rule(line, rule)
-            rate_label = _format_override_label(rule, line, tier_code)
-            is_override = True
-        else:
-            commission = round((r['line_net'] or 0) * rate_pct / 100.0, 2)
-            rate_label = _fmt_rate_pct(rate_pct)
+        if not tier_pays_commission:
+            commission = 0.0
+            rate_label = '0%'
             is_override = False
+        else:
+            rule = _resolve_override(line, overrides)
+            if rule is not None:
+                commission = _override_commission_from_rule(line, rule)
+                rate_label = _format_override_label(rule, line, tier_code)
+                is_override = True
+            else:
+                commission = round((r['line_net'] or 0) * rate_pct / 100.0, 2)
+                rate_label = _fmt_rate_pct(rate_pct)
+                is_override = False
 
         # Freebies (sold at 0 baht) earn no commission and the rate
         # column should reflect that — show "0%" regardless of brand or
@@ -802,6 +817,16 @@ def get_invoice_commission_for_sp(year_month, salesperson_code, db_path=None,
         rate_third = (tier_rates['rate_third_pct'] or 0) / 100.0
     else:
         rate_own = rate_third = 0.0
+    # Zero-tier sps (Tier C / unassigned) earn no commission — overrides
+    # are also suppressed for them, matching the line-breakdown gate.
+    tier_pays_commission = (rate_own > 0 or rate_third > 0
+                            or (tier_rates and (tier_rates['threshold_amount'] or 0) > 0))
+    if not tier_pays_commission:
+        for v in inv.values():
+            v['override_commission'] = 0.0
+            v['_tier_own'] = 0.0
+            v['_tier_third'] = 0.0
+            # display own/third stay (those reflect revenue, not commission)
     conn.close()
 
     # In through-month mode, payouts may have been recorded under any
