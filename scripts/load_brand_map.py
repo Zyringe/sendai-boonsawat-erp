@@ -86,7 +86,36 @@ def main():
     inserted = conn.execute('SELECT COUNT(*) FROM product_brand_map').fetchone()[0]
     print(f'Inserted into product_brand_map: {inserted} rows')
 
-    # Backfill brand_kind on express_sales — first pass: exact-name match
+    # Reset all brand_kind so we re-run with the correct priority order
+    # (code-based first beats whatever was there from a previous load).
+    conn.execute("UPDATE express_sales SET brand_kind = NULL")
+    conn.commit()
+
+    total = conn.execute("SELECT COUNT(*) FROM express_sales").fetchone()[0]
+
+    # Pass 1 (most authoritative): product_code → product_code_mapping →
+    # products.brand_id → brands.is_own_brand. 99.9% match because Express
+    # and BSN share the product code system.
+    conn.execute("""
+        UPDATE express_sales
+           SET brand_kind = (
+               SELECT CASE WHEN b.is_own_brand = 1 THEN 'own' ELSE 'third_party' END
+                 FROM product_code_mapping pcm
+                 JOIN products p ON p.id = pcm.product_id
+                 JOIN brands b   ON b.id = p.brand_id
+                WHERE pcm.bsn_code = express_sales.product_code
+           )
+         WHERE brand_kind IS NULL
+           AND product_code IS NOT NULL
+    """)
+    conn.commit()
+    matched = conn.execute(
+        "SELECT COUNT(*) FROM express_sales WHERE brand_kind IS NOT NULL"
+    ).fetchone()[0]
+    print(f'Backfilled by product_code (Sendy brand): {matched} / {total}')
+
+    # Pass 2: exact product-name match in brand.csv map (catches Express
+    # codes not in product_code_mapping or Sendy products without brand_id).
     conn.execute("""
         UPDATE express_sales
            SET brand_kind = (
@@ -98,13 +127,12 @@ def main():
            AND product_name_raw IN (SELECT product_name FROM product_brand_map)
     """)
     conn.commit()
-    matched = conn.execute(
+    matched2 = conn.execute(
         "SELECT COUNT(*) FROM express_sales WHERE brand_kind IS NOT NULL"
     ).fetchone()[0]
-    total = conn.execute("SELECT COUNT(*) FROM express_sales").fetchone()[0]
-    print(f'Backfilled by exact match: {matched} / {total} sales lines')
+    print(f'Backfilled by exact name match: {matched2 - matched} more (running total {matched2})')
 
-    # Second pass: regex fallback for remaining rows
+    # Pass 3: regex fallback for remaining rows
     unmatched = conn.execute(
         "SELECT id, product_name_raw FROM express_sales WHERE brand_kind IS NULL"
     ).fetchall()
