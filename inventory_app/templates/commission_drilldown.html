@@ -107,18 +107,31 @@
 
       <div class="card">
         <div class="table-responsive">
+          {% macro sort_link(col, label, align='start') -%}
+            {%- set is_active = (sort_col == col) -%}
+            {%- set next_order = 'asc' if (is_active and sort_order == 'desc') else 'desc' -%}
+            <a href="{{ url_for('commission_drilldown', sp_code=sp_code, month=year_month, sort=col, order=next_order) }}"
+               class="text-reset text-decoration-none">
+              {{ label }}
+              {%- if is_active %}
+                <i class="bi bi-caret-{% if sort_order == 'desc' %}down{% else %}up{% endif %}-fill small"></i>
+              {%- else -%}
+                <i class="bi bi-arrow-down-up small text-subtle"></i>
+              {%- endif %}
+            </a>
+          {%- endmacro %}
           <table class="table table-hover mb-0">
             <thead>
               <tr>
                 <th class="text-center"><input type="checkbox" id="check-all-inv" title="เลือกทั้งหมด"></th>
-                <th>วันที่ซื้อ</th>
-                <th>วันที่จ่าย</th>
-                <th>เลขที่</th>
+                <th>{{ sort_link('invoice_date', 'วันที่ซื้อ') }}</th>
+                <th>{{ sort_link('receipt_date', 'วันที่จ่าย') }}</th>
+                <th>{{ sort_link('invoice_no', 'เลขที่') }}</th>
                 <th>ลูกค้า</th>
                 <th class="text-end">Own</th>
                 <th class="text-end">3rd</th>
                 <th class="text-end">Total net</th>
-                <th class="text-end">Commission</th>
+                <th class="text-end">{{ sort_link('commission_due', 'Commission') }}</th>
                 <th class="text-end">จ่ายแล้ว</th>
                 <th class="text-end">คงเหลือ</th>
                 <th class="text-center">สถานะ</th>

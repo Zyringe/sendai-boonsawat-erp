@@ -1738,6 +1738,19 @@ def commission_drilldown(sp_code):
     # Per-invoice commission for the "tick to mark paid" workflow
     invoice_commissions = commission_mod.get_invoice_commission_for_sp(
         year_month, sp_code)
+
+    # Sort the per-invoice list per ?sort= and ?order= (default: receipt_date desc).
+    sort_col = request.args.get('sort', 'receipt_date')
+    sort_order = request.args.get('order', 'desc')
+    SORT_KEYS = {
+        'invoice_date':   lambda r: (r.get('invoice_date') or '', r['invoice_no']),
+        'receipt_date':   lambda r: (r.get('receipt_date') or '', r['invoice_no']),
+        'invoice_no':     lambda r: r['invoice_no'],
+        'commission_due': lambda r: r['commission_due'],
+    }
+    keyfn = SORT_KEYS.get(sort_col, SORT_KEYS['receipt_date'])
+    invoice_commissions.sort(key=keyfn, reverse=(sort_order == 'desc'))
+
     # All invoices issued in target month for this salesperson (paid + unpaid)
     all_invoices = commission_mod.get_invoices_for_salesperson(year_month, sp_code)
     payouts = commission_mod.get_payout_history(year_month=year_month,
@@ -1751,6 +1764,7 @@ def commission_drilldown(sp_code):
                            all_invoices=all_invoices,
                            payouts=payouts,
                            paid_amount=paid_amount,
+                           sort_col=sort_col, sort_order=sort_order,
                            today=date.today().isoformat())
 
 
