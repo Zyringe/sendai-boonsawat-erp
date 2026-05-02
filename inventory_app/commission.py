@@ -443,23 +443,27 @@ def get_invoice_payouts_for_sp(year_month, salesperson_code, db_path=None):
 
 
 def get_payout_history(year_month=None, salesperson_code=None, db_path=None):
-    """Return raw commission_payouts rows, sorted newest-first."""
+    """Return commission_payouts rows joined with the underlying invoice's
+    issue date from express_sales. Sorted newest-first by year_month."""
     conn = _connect(db_path)
     where = []
     params = []
     if year_month:
-        where.append('year_month = ?')
+        where.append('cp.year_month = ?')
         params.append(year_month)
     if salesperson_code:
-        where.append('salesperson_code = ?')
+        where.append('cp.salesperson_code = ?')
         params.append(salesperson_code)
     where_sql = ('WHERE ' + ' AND '.join(where)) if where else ''
     rows = conn.execute(f"""
-        SELECT id, year_month, salesperson_code, amount_paid,
-               paid_date, paid_method, note, paid_by, created_at
-          FROM commission_payouts
+        SELECT cp.id, cp.year_month, cp.salesperson_code, cp.amount_paid,
+               cp.paid_date, cp.paid_method, cp.note, cp.paid_by, cp.created_at,
+               cp.invoice_no,
+               (SELECT MIN(date_iso) FROM express_sales es WHERE es.doc_no = cp.invoice_no)
+                                          AS invoice_date
+          FROM commission_payouts cp
           {where_sql}
-         ORDER BY paid_date DESC, id DESC
+         ORDER BY cp.year_month DESC, cp.id DESC
     """, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]

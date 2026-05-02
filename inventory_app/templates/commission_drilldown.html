@@ -331,10 +331,10 @@
         <table class="table table-hover mb-0">
           <thead>
             <tr>
-              <th>เดือน cycle</th>
+              <th>วันที่จ่าย <span class="text-subtle small">(cycle)</span></th>
+              <th>วันที่ซื้อ <span class="text-subtle small">(invoice)</span></th>
               <th>เลขที่เอกสาร</th>
               <th class="text-end">ยอด</th>
-              <th class="text-center">วันที่จ่าย</th>
               <th class="text-center">วิธี</th>
               <th>หมายเหตุ</th>
               <th class="text-center">บันทึกโดย</th>
@@ -345,6 +345,7 @@
             {% for p in payouts %}
             <tr {% if p.paid_method == 'auto' %}class="text-subtle"{% endif %}>
               <td><span class="badge bg-light text-dark font-mono">{{ p.year_month }}</span></td>
+              <td class="font-mono small">{{ p.invoice_date or '—' }}</td>
               <td class="font-mono small">
                 {% if p.invoice_no %}
                 <a href="{{ url_for('commission_invoice_detail', sp_code=sp_code, invoice_no=p.invoice_no, month=p.year_month) }}"
@@ -354,7 +355,6 @@
                 {% endif %}
               </td>
               <td class="text-end font-mono fw-600 text-primary">{{ '{:,.2f}'.format(p.amount_paid) }}</td>
-              <td class="text-center font-mono small">{{ p.paid_date }}</td>
               <td class="text-center small">
                 {% if p.paid_method == 'auto' %}
                 <span class="badge bg-light text-secondary" title="auto-paid (pre-Feb 2026 / brand-change top-up)">auto</span>
