@@ -275,7 +275,7 @@
         <table class="table table-hover mb-0">
           <thead>
             <tr>
-              <th>วันที่</th>
+              <th>วันที่ซื้อ</th>
               <th>เลขที่</th>
               <th>ประเภท</th>
               <th>ลูกค้า</th>
@@ -290,7 +290,12 @@
             {% for inv in all_invoices %}
             <tr>
               <td class="font-mono small">{{ inv.date_iso }}</td>
-              <td class="font-mono"><strong>{{ inv.doc_no }}</strong></td>
+              <td class="font-mono">
+                <a href="{{ url_for('commission_invoice_detail', sp_code=sp_code, invoice_no=inv.doc_no, month=year_month) }}"
+                   class="text-reset text-decoration-none" title="ดูรายละเอียดสินค้า + rate">
+                  <strong>{{ inv.doc_no }}</strong>
+                </a>
+              </td>
               <td><span class="badge {% if inv.doc_type == 'IV' %}bg-primary{% else %}bg-info text-dark{% endif %}">{{ inv.doc_type }}</span></td>
               <td>{{ inv.customer_name }}<span class="text-subtle font-mono small ms-1">/{{ inv.customer_code }}</span></td>
               <td class="text-end font-mono">{{ '{:,.2f}'.format(inv.total_net) }}</td>
