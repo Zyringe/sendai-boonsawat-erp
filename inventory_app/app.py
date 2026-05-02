@@ -1532,20 +1532,28 @@ def commission_dashboard():
             })
     full_rows.sort(key=lambda r: -r['total_net'])
 
-    # Layer in paid-amount per salesperson for the month
+    # Layer in paid-amount per salesperson for the month + cumulative
+    # remaining (matches the drilldown's "ค้างจ่าย ถึง..." view, per
+    # Put 2026-05-02). paid_amount stays month-only (= what we paid in
+    # this cycle), remaining becomes cumulative through this month.
     paid_map = commission_mod.get_payouts_for_month(year_month)
     for r in full_rows:
         paid = paid_map.get(r['salesperson_code'], 0.0)
         r['paid_amount'] = paid
-        r['remaining'] = round((r['total_commission'] or 0) - paid, 2)
-        if r['total_commission'] and paid >= r['total_commission'] - 0.01:
-            r['payout_status'] = 'paid'
+        # Cumulative unpaid through end of this month (mirrors drilldown)
+        unpaid = commission_mod.get_invoice_commission_for_sp(
+            year_month, r['salesperson_code'],
+            through_month=True, only_unpaid=True)
+        r['remaining'] = round(sum(i['remaining'] for i in unpaid), 2)
+        if r['remaining'] <= 0.05:
+            if r['total_commission'] and r['total_commission'] > 0:
+                r['payout_status'] = 'paid'
+            else:
+                r['payout_status'] = 'none'
         elif paid > 0:
             r['payout_status'] = 'partial'
-        elif r['total_commission'] and r['total_commission'] > 0:
-            r['payout_status'] = 'pending'
         else:
-            r['payout_status'] = 'none'
+            r['payout_status'] = 'pending'
 
     summary = {
         'total_collected_net': sum(r['total_net'] for r in full_rows),
