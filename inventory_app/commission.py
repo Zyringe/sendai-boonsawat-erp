@@ -236,13 +236,11 @@ def _override_commission(line):
 def _format_override_label(rule, line, tier_code):
     """Compose the rate-column label for a matched override.
 
-    Brand-level   → 'Tier <X> <BRAND> <rate>%'   (e.g. 'Tier A SOMIC 2%')
-    Product-level → '<rate>%' or '฿<n>/หน่วย'    (per-product rule)
+    Both product-level and brand-level overrides render as the bare rate
+    (e.g. "2%") or per-unit price ("฿5/หน่วย"). The override origin is
+    not surfaced in the label — keeps the column compact and uniform
+    with plain tier rates.
     """
-    if rule['_kind'] == 'brand' and rule['custom_rate_pct'] is not None:
-        rate = _fmt_rate_pct(rule['custom_rate_pct'])
-        brand = (line.get('sendy_brand_name') or '').strip() or 'override'
-        return f'Tier {tier_code} {brand} {rate}'
     if rule['custom_rate_pct'] is not None:
         return _fmt_rate_pct(rule['custom_rate_pct'])
     if rule['fixed_per_unit'] is not None:
