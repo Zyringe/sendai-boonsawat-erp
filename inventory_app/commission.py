@@ -491,10 +491,12 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
     # Look up Sendy product_id via product_code_mapping (BSN/Express share
     # the same product code system — 99.9% of Express codes are already
     # mapped). Falls back to NULL only for genuinely unmapped codes.
-    # Also peek for any product-level commission override.
+    # Also peek for any product-level commission override and the
+    # canonical Sendy product name (preferred over the Express raw name).
     rows = conn.execute("""
         SELECT es.product_code,
                es.product_name_raw,
+               p.product_name       AS sendy_product_name,
                es.qty,
                es.unit,
                es.unit_price,
@@ -507,6 +509,7 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
                cpo.id               AS override_id
           FROM express_sales es
           LEFT JOIN product_code_mapping m ON m.bsn_code = es.product_code
+          LEFT JOIN products p ON p.id = m.product_id
           LEFT JOIN commission_product_overrides cpo
                  ON cpo.product_id = m.product_id
                 AND cpo.is_active = 1
@@ -555,18 +558,19 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
             commission = round((r['line_net'] or 0) * rate_pct / 100.0, 2)
             rate_label = f'{rate_pct:.1f}%'
         out_rows.append({
-            'product_code':     r['product_code'],
-            'product_name_raw': r['product_name_raw'],
-            'qty':              r['qty'],
-            'unit':             r['unit'],
-            'unit_price':       r['unit_price'],
-            'line_net':         r['line_net'],
-            'brand_kind':       kind,
-            'rate_pct':         rate_pct,
-            'rate_label':       rate_label,
-            'commission':       commission,
-            'sendy_product_id': r['sendy_product_id'],
-            'is_override':      ov is not None,
+            'product_code':       r['product_code'],
+            'product_name_raw':   r['product_name_raw'],
+            'sendy_product_name': r['sendy_product_name'],
+            'qty':                r['qty'],
+            'unit':               r['unit'],
+            'unit_price':         r['unit_price'],
+            'line_net':           r['line_net'],
+            'brand_kind':         kind,
+            'rate_pct':           rate_pct,
+            'rate_label':         rate_label,
+            'commission':         commission,
+            'sendy_product_id':   r['sendy_product_id'],
+            'is_override':        ov is not None,
         })
 
     header = {
@@ -584,11 +588,18 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
     return header, out_rows
 
 
-def get_invoice_commission_for_sp(year_month, salesperson_code, db_path=None):
-    """Per-invoice commission for one salesperson in a month.
+def get_invoice_commission_for_sp(year_month, salesperson_code, db_path=None,
+                                    through_month=False, only_unpaid=False):
+    """Per-invoice commission for one salesperson.
 
-    For each invoice the salesperson collected this month:
+    Default: invoices with receipt date in `year_month`.
+    `through_month=True`: include any invoice with receipt date <= end of
+    `year_month` (cumulative view through that month).
+    `only_unpaid=True`: drop invoices with remaining <= 0.005 from output.
+
+    For each invoice the salesperson collected:
         commission_due  = own_net × tier.rate_own_pct + third_net × tier.rate_third_pct
+                          + override_commission (per-product fixed)
         (BASE rates only — Tier B's above-threshold bonus is handled at
          month level, not allocated per invoice.)
 
@@ -597,7 +608,8 @@ def get_invoice_commission_for_sp(year_month, salesperson_code, db_path=None):
       own_net, third_net, total_net,
       commission_due, paid_amount, remaining, paid_status
     """
-    lines = get_lines_for_salesperson(year_month, salesperson_code, db_path)
+    lines = get_lines_for_salesperson(year_month, salesperson_code, db_path,
+                                       through_month=through_month)
 
     # Group by invoice_no, aggregating own/third nets + override commission
     inv = {}
@@ -658,7 +670,22 @@ def get_invoice_commission_for_sp(year_month, salesperson_code, db_path=None):
         rate_own = rate_third = 0.0
     conn.close()
 
-    paid_map = get_invoice_payouts_for_sp(year_month, salesperson_code, db_path)
+    # In through-month mode, payouts may have been recorded under any
+    # year_month ≤ ym. Aggregate across all those months.
+    if through_month:
+        conn2 = _connect(db_path)
+        rows_p = conn2.execute("""
+            SELECT invoice_no, ROUND(SUM(amount_paid), 2) AS paid
+              FROM commission_payouts
+             WHERE salesperson_code = ?
+               AND invoice_no IS NOT NULL
+               AND year_month <= ?
+             GROUP BY invoice_no
+        """, (salesperson_code, year_month)).fetchall()
+        paid_map = {r['invoice_no']: r['paid'] for r in rows_p}
+        conn2.close()
+    else:
+        paid_map = get_invoice_payouts_for_sp(year_month, salesperson_code, db_path)
 
     out = []
     for v in inv.values():
@@ -688,11 +715,16 @@ def get_invoice_commission_for_sp(year_month, salesperson_code, db_path=None):
             'remaining':      remaining,
             'paid_status':    status,
         })
+    if only_unpaid:
+        # 5-satang tolerance — guards against floating-point rounding
+        # leftovers (auto-pay rounded to 2dp can leave 0.01 residue).
+        out = [r for r in out if r['remaining'] > 0.05]
     out.sort(key=lambda r: (r['receipt_date'] or '', r['invoice_no']), reverse=True)
     return out
 
 
-def get_lines_for_salesperson(year_month, salesperson_code, db_path=None):
+def get_lines_for_salesperson(year_month, salesperson_code, db_path=None,
+                                through_month=False):
     """Return per-line detail for one salesperson in a month.
 
     Each row represents one (receipt, invoice, sales-line) tuple — useful
@@ -701,6 +733,10 @@ def get_lines_for_salesperson(year_month, salesperson_code, db_path=None):
     """
     conn = _connect(db_path)
     start, end = _month_bounds(year_month)
+    if through_month:
+        # widen lower bound to "everything we have"; keep upper bound at
+        # end of selected month
+        start = '2000-01-01'
     rows = conn.execute(_BASE_QUERY + " AND pin.salesperson_code = ?",
                         (start, end, salesperson_code)).fetchall()
     out = [dict(r) for r in rows]

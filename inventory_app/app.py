@@ -1735,9 +1735,13 @@ def commission_drilldown(sp_code):
                           (sp_code,)).fetchone()
     conn.close()
     sp_name = sp_row['name'] if sp_row else sp_code
-    # Per-invoice commission for the "tick to mark paid" workflow
+    # Per-invoice commission for the "tick to mark paid" workflow.
+    # Through-month + only-unpaid: on the drill-down, picking month X
+    # shows EVERY unpaid invoice with receipt-date ≤ end of X (carryover
+    # included). Invoices already fully paid are hidden — Put doesn't
+    # need to see them when settling.
     invoice_commissions = commission_mod.get_invoice_commission_for_sp(
-        year_month, sp_code)
+        year_month, sp_code, through_month=True, only_unpaid=True)
 
     # Sort the per-invoice list per ?sort= and ?order= (default: receipt_date desc).
     sort_col = request.args.get('sort', 'receipt_date')

@@ -59,9 +59,11 @@
             {% if ln.sendy_product_id %}
             <a href="{{ url_for('products.product_detail', product_id=ln.sendy_product_id) }}"
                class="text-reset" title="ไปหน้าสินค้า">
-              {{ ln.product_name_raw }}
-              <i class="bi bi-arrow-up-right small text-muted"></i>
+              {{ ln.sendy_product_name or ln.product_name_raw }}
             </a>
+            {% if ln.sendy_product_name and ln.sendy_product_name != ln.product_name_raw %}
+              <div class="small text-subtle" title="ชื่อใน Express">{{ ln.product_name_raw }}</div>
+            {% endif %}
             {% else %}
             {{ ln.product_name_raw }}
             <span class="badge bg-light text-warning small ms-1" title="ยังไม่ map กับสินค้าใน Sendy">no match</span>
