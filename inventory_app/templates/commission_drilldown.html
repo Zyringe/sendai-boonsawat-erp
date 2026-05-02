@@ -330,7 +330,8 @@
         <table class="table table-hover mb-0">
           <thead>
             <tr>
-              <th>เดือน</th>
+              <th>เดือน cycle</th>
+              <th>เลขที่เอกสาร</th>
               <th class="text-end">ยอด</th>
               <th class="text-center">วันที่จ่าย</th>
               <th class="text-center">วิธี</th>
@@ -341,12 +342,24 @@
           </thead>
           <tbody>
             {% for p in payouts %}
-            <tr>
+            <tr {% if p.paid_method == 'auto' %}class="text-subtle"{% endif %}>
               <td><span class="badge bg-light text-dark font-mono">{{ p.year_month }}</span></td>
+              <td class="font-mono small">
+                {% if p.invoice_no %}
+                <a href="{{ url_for('commission_invoice_detail', sp_code=sp_code, invoice_no=p.invoice_no, month=p.year_month) }}"
+                   class="text-reset text-decoration-none">{{ p.invoice_no }}</a>
+                {% else %}
+                <span class="text-subtle">— (month-level)</span>
+                {% endif %}
+              </td>
               <td class="text-end font-mono fw-600 text-primary">{{ '{:,.2f}'.format(p.amount_paid) }}</td>
               <td class="text-center font-mono small">{{ p.paid_date }}</td>
-              <td class="text-center small">{{ p.paid_method or '—' }}</td>
-              <td class="small text-subtle">{{ p.note or '' }}</td>
+              <td class="text-center small">
+                {% if p.paid_method == 'auto' %}
+                <span class="badge bg-light text-secondary" title="auto-paid (pre-Feb 2026 / brand-change top-up)">auto</span>
+                {% else %}{{ p.paid_method or '—' }}{% endif %}
+              </td>
+              <td class="small text-subtle" style="max-width:300px">{{ p.note or '' }}</td>
               <td class="text-center small text-subtle">{{ p.paid_by or '—' }}</td>
               <td class="text-end">
                 <form method="post" action="{{ url_for('commission_delete_payout', payout_id=p.id) }}"
@@ -356,7 +369,7 @@
               </td>
             </tr>
             {% else %}
-            <tr><td colspan="7" class="text-center text-subtle py-4">ยังไม่มีประวัติการจ่าย</td></tr>
+            <tr><td colspan="8" class="text-center text-subtle py-4">ยังไม่มีประวัติการจ่าย</td></tr>
             {% endfor %}
           </tbody>
         </table>
