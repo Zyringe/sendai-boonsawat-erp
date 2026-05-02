@@ -147,10 +147,28 @@ def get_brand(brand_id):
 
 
 def set_product_brand(product_id, brand_id):
-    """Assign (or clear) a brand on a product. Pass None to clear."""
+    """Assign (or clear) a brand on a product. Pass None to clear.
+
+    Also refreshes express_sales.brand_kind cache for any rows whose
+    product_code maps to this product, so the commission engine picks
+    up the new brand classification immediately.
+    """
     conn = get_connection()
     conn.execute("UPDATE products SET brand_id = ? WHERE id = ?",
                  (brand_id, product_id))
+    # Refresh brand_kind cache. Result: 'own' if brand.is_own_brand=1,
+    # 'third_party' if brand.is_own_brand=0, NULL if brand_id is NULL
+    # (NULL falls back to regex/name in the commission engine).
+    conn.execute("""
+        UPDATE express_sales
+           SET brand_kind = (
+               SELECT CASE WHEN b.is_own_brand = 1 THEN 'own' ELSE 'third_party' END
+                 FROM brands b WHERE b.id = ?
+           )
+         WHERE product_code IN (
+             SELECT bsn_code FROM product_code_mapping WHERE product_id = ?
+         )
+    """, (brand_id, product_id))
     conn.commit()
     conn.close()
 
