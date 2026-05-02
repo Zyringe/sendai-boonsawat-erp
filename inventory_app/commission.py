@@ -94,12 +94,12 @@ def _load_tiers(conn):
 # sales lines' net for that invoice. This way commission base = net actually
 # collected per product (subset of total invoice if partially paid).
 _BASE_QUERY = """
-    SELECT pin.salesperson_code,
-           pin.doc_no            AS receipt_no,
-           pin.date_iso          AS receipt_date,
-           pin.customer_name     AS customer_name,
-           ref.invoice_no,
-           ref.amount            AS ref_amount,
+    SELECT rcv.salesperson_code,
+           rcv.receipt_no,
+           rcv.receipt_date,
+           rcv.customer_name,
+           rcv.invoice_no,
+           rcv.ref_amount,
            es.product_code,
            es.product_name_raw,
            es.brand_kind         AS brand_kind,
@@ -108,15 +108,30 @@ _BASE_QUERY = """
            es.qty                AS qty,
            es.unit_price         AS unit_price,
            pcm.product_id        AS sendy_product_id,
-           p.brand_id            AS sendy_brand_id
-      FROM express_payments_in    pin
-      JOIN express_payment_in_invoice_refs ref ON ref.payment_in_id = pin.id
-      JOIN express_sales          es  ON es.doc_no = ref.invoice_no
+           p.brand_id            AS sendy_brand_id,
+           b.code                AS sendy_brand_code,
+           b.name                AS sendy_brand_name
+      FROM (
+          SELECT pin.salesperson_code,
+                 ref.invoice_no,
+                 -- when multiple receipts pay the same invoice (split payment),
+                 -- collapse to one row to avoid Cartesian-multiplying the sales lines
+                 MIN(pin.doc_no)        AS receipt_no,
+                 MIN(pin.date_iso)      AS receipt_date,
+                 MIN(pin.customer_name) AS customer_name,
+                 SUM(ref.amount)        AS ref_amount
+            FROM express_payments_in pin
+            JOIN express_payment_in_invoice_refs ref ON ref.payment_in_id = pin.id
+           WHERE pin.is_void = 0
+             AND pin.date_iso BETWEEN ? AND ?
+             AND pin.salesperson_code <> ''
+           GROUP BY pin.salesperson_code, ref.invoice_no
+      ) rcv
+      JOIN express_sales          es   ON es.doc_no = rcv.invoice_no
       LEFT JOIN product_code_mapping pcm ON pcm.bsn_code = es.product_code
-      LEFT JOIN products          p   ON p.id = pcm.product_id
-     WHERE pin.is_void = 0
-       AND pin.date_iso BETWEEN ? AND ?
-       AND pin.salesperson_code <> ''
+      LEFT JOIN products          p    ON p.id = pcm.product_id
+      LEFT JOIN brands            b    ON b.id = p.brand_id
+     WHERE 1=1
 """
 
 
@@ -569,10 +584,13 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
                es.net               AS line_net,
                es.brand_kind,
                m.product_id         AS sendy_product_id,
-               p.brand_id           AS sendy_brand_id
+               p.brand_id           AS sendy_brand_id,
+               b.code               AS sendy_brand_code,
+               b.name               AS sendy_brand_name
           FROM express_sales es
           LEFT JOIN product_code_mapping m ON m.bsn_code = es.product_code
           LEFT JOIN products p ON p.id = m.product_id
+          LEFT JOIN brands   b ON b.id = p.brand_id
          WHERE es.doc_no = ?
          ORDER BY es.line_no
     """, (invoice_no,)).fetchall()
@@ -622,6 +640,8 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
             'product_code':       r['product_code'],
             'product_name_raw':   r['product_name_raw'],
             'sendy_product_name': r['sendy_product_name'],
+            'sendy_brand_name':   r['sendy_brand_name'],
+            'sendy_brand_code':   r['sendy_brand_code'],
             'qty':                r['qty'],
             'unit':               r['unit'],
             'unit_price':         r['unit_price'],
@@ -672,29 +692,29 @@ def get_invoice_commission_for_sp(year_month, salesperson_code, db_path=None,
     lines = get_lines_for_salesperson(year_month, salesperson_code, db_path,
                                        through_month=through_month)
 
-    # Group by invoice_no, aggregating own/third nets + override commission
+    # Group by invoice_no. Track own_net/third_net for tier-rate lines
+    # ONLY — override lines contribute via override_commission and must
+    # NOT also be summed into own/third (else commission_due double-counts).
+    # display_net is the total invoice net for the table footer / cards.
     inv = {}
     for ln in lines:
         v = inv.setdefault(ln['invoice_no'], {
             'invoice_no':   ln['invoice_no'],
-            'invoice_date': '',          # filled below
+            'invoice_date': '',
             'receipt_no':   ln['receipt_no'],
             'receipt_date': ln['receipt_date'],
             'customer_name': ln['customer_name'],
-            'own_net':      0.0,
-            'third_net':    0.0,
+            'own_net':      0.0,    # non-override own — used by tier rate
+            'third_net':    0.0,    # non-override third — used by tier rate
             'override_commission': 0.0,
+            'display_net':  0.0,    # invoice total (incl. override lines)
         })
         ov = _override_commission(ln)
         net = ln['line_net'] or 0
+        v['display_net'] += net
         if ov is not None:
             v['override_commission'] += ov
-            # net still tracked under brand kind for display but engine
-            # uses override for commission calculation
-            if ln['brand_kind'] == 'own':
-                v['own_net'] += net
-            else:
-                v['third_net'] += net
+            # net does NOT go into own_net/third_net for the tier formula.
         elif ln['brand_kind'] == 'own':
             v['own_net'] += net
         else:
@@ -755,7 +775,7 @@ def get_invoice_commission_for_sp(year_month, salesperson_code, db_path=None,
             + v.get('override_commission', 0),
             2,
         )
-        total_net = round(v['own_net'] + v['third_net'], 2)
+        total_net = round(v.get('display_net', v['own_net'] + v['third_net']), 2)
         paid = paid_map.get(v['invoice_no'], 0.0)
         remaining = round(commission_due - paid, 2)
         if commission_due == 0:
@@ -798,7 +818,7 @@ def get_lines_for_salesperson(year_month, salesperson_code, db_path=None,
         # widen lower bound to "everything we have"; keep upper bound at
         # end of selected month
         start = '2000-01-01'
-    rows = conn.execute(_BASE_QUERY + " AND pin.salesperson_code = ?",
+    rows = conn.execute(_BASE_QUERY + " AND rcv.salesperson_code = ?",
                         (start, end, salesperson_code)).fetchall()
     out = [dict(r) for r in rows]
     # Resolve fallback brand_kind for any NULL rows so the template doesn't

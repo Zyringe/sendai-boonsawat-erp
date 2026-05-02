@@ -74,7 +74,12 @@
           <td class="text-end font-mono">{{ '{:,.2f}'.format(ln.unit_price or 0) }}</td>
           <td class="text-end font-mono">{{ '{:,.2f}'.format(ln.line_net or 0) }}</td>
           <td class="text-center">
-            <span class="badge {% if ln.brand_kind == 'own' %}bg-primary{% else %}bg-secondary{% endif %}">{{ ln.brand_kind }}</span>
+            {% if ln.sendy_brand_name %}
+              <span class="badge {% if ln.brand_kind == 'own' %}bg-primary{% else %}bg-secondary{% endif %}"
+                    title="brand_kind: {{ ln.brand_kind }}">{{ ln.sendy_brand_name }}</span>
+            {% else %}
+              <span class="badge {% if ln.brand_kind == 'own' %}bg-primary{% else %}bg-secondary{% endif %}">{{ ln.brand_kind }}</span>
+            {% endif %}
           </td>
           <td class="text-end font-mono small">
             {% if ln.is_override %}
