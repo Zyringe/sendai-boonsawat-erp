@@ -149,16 +149,18 @@ def get_brand(brand_id):
 def set_product_brand(product_id, brand_id):
     """Assign (or clear) a brand on a product. Pass None to clear.
 
-    Also refreshes express_sales.brand_kind cache for any rows whose
-    product_code maps to this product, so the commission engine picks
-    up the new brand classification immediately.
+    Side effects to keep commission state consistent:
+      1. Refresh express_sales.brand_kind for any rows whose product_code
+         maps to this product (so the commission engine sees the new
+         classification immediately).
+      2. Top-up auto-pay for pre-2026-02 invoices that include this
+         product and whose commission_due just changed (e.g. third → own
+         flips a 5% line to 10% — without a top-up the invoice would
+         resurface as 'partial').
     """
     conn = get_connection()
     conn.execute("UPDATE products SET brand_id = ? WHERE id = ?",
                  (brand_id, product_id))
-    # Refresh brand_kind cache. Result: 'own' if brand.is_own_brand=1,
-    # 'third_party' if brand.is_own_brand=0, NULL if brand_id is NULL
-    # (NULL falls back to regex/name in the commission engine).
     conn.execute("""
         UPDATE express_sales
            SET brand_kind = (
@@ -171,6 +173,67 @@ def set_product_brand(product_id, brand_id):
     """, (brand_id, product_id))
     conn.commit()
     conn.close()
+
+    # Top up auto-pay for any pre-Feb-2026 invoices touched by this
+    # product. Imported lazily so models.py stays usable in non-Flask
+    # contexts (CLI scripts, tests).
+    try:
+        import commission as _commission
+        _commission.clear_override_cache()
+        _topup_pre_feb_for_product(product_id, _commission)
+    except Exception as e:
+        # don't break the brand UPDATE if the top-up fails for any
+        # reason — log and move on
+        import sys
+        print(f'[set_product_brand] warning: top-up failed: {e}', file=sys.stderr)
+
+
+def _topup_pre_feb_for_product(product_id, commission_mod, cutoff='2026-02-01'):
+    """For every pre-cutoff invoice that includes this product, recompute
+    commission and insert payout rows for any new shortfall. Marker:
+    note='pre-Feb 2026 auto-paid (top-up after brand change)'.
+    """
+    conn = get_connection()
+    codes = [r[0] for r in conn.execute(
+        'SELECT bsn_code FROM product_code_mapping WHERE product_id = ?',
+        (product_id,)
+    ).fetchall()]
+    if not codes:
+        conn.close()
+        return
+    placeholders = ','.join(['?'] * len(codes))
+    triples = conn.execute(f"""
+        SELECT DISTINCT pin.salesperson_code,
+                        substr(pin.date_iso, 1, 7) AS ym,
+                        ref.invoice_no
+          FROM express_payments_in pin
+          JOIN express_payment_in_invoice_refs ref ON ref.payment_in_id = pin.id
+          JOIN express_sales es ON es.doc_no = ref.invoice_no
+         WHERE pin.is_void = 0
+           AND pin.salesperson_code <> ''
+           AND es.product_code IN ({placeholders})
+           AND es.date_iso < ?
+    """, codes + [cutoff]).fetchall()
+    conn.close()
+
+    inserted = 0
+    for sp, ym, inv_no in triples:
+        invs = commission_mod.get_invoice_commission_for_sp(ym, sp)
+        for inv in invs:
+            if inv['invoice_no'] != inv_no:
+                continue
+            if inv['remaining'] > 0.05:
+                commission_mod.record_payout(
+                    year_month=ym, salesperson_code=sp,
+                    amount_paid=inv['remaining'], paid_date='2026-02-01',
+                    paid_method='auto', paid_by='system',
+                    note='pre-Feb 2026 auto-paid (top-up after brand change)',
+                    invoice_no=inv_no,
+                )
+                inserted += 1
+            break
+    if inserted:
+        print(f'[set_product_brand] topped up {inserted} pre-Feb payouts for product {product_id}')
 
 
 def create_brand(name, name_th=None, is_own=False):
