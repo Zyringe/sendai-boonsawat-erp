@@ -169,62 +169,85 @@ def clear_override_cache():
 
 
 def _resolve_override(line, overrides):
-    """Find best-matching override for a line and return (commission, label)
-    or (None, None) if none applies. Priority: product-level > brand-level.
-    Salesperson-specific > generic."""
+    """Find best-matching override for a line. Returns the matched override
+    dict (with `_kind` = 'product' or 'brand' added), or None.
+
+    Priority: product-level > brand-level. Salesperson-specific > generic.
+    Also enforces the price gate so callers can use the matched rule
+    directly to compute amount + label.
+    """
     product_id = line.get('sendy_product_id')
     brand_id = line.get('sendy_brand_id')
     sp_code = line.get('salesperson_code')
     qty = line.get('qty') or 0
     price = line.get('unit_price') or 0
-    net = line.get('line_net') or 0
 
-    # Score candidates: product > brand; sp-specific > generic
     candidates = []
     for o in overrides:
         if o['salesperson_code'] and o['salesperson_code'] != sp_code:
             continue
-        score = 0
         if o['product_id'] is not None and o['product_id'] == product_id:
-            score = 10
-        elif o['brand_id'] is not None and o['brand_id'] == brand_id and brand_id is not None:
-            score = 5
+            kind = 'product'; score = 10
+        elif o['brand_id'] is not None and brand_id is not None and o['brand_id'] == brand_id:
+            kind = 'brand'; score = 5
         else:
             continue
         if o['salesperson_code']:
             score += 1
-        candidates.append((score, o))
+        candidates.append((score, kind, o))
 
     if not candidates:
-        return None, None
+        return None
     candidates.sort(key=lambda c: -c[0])
-    o = candidates[0][1]
+    _, kind, o = candidates[0]
 
-    # Price gate
     gt = o['apply_when_price_gt'] or 0
     lte = o['apply_when_price_lte']
     if price <= gt:
-        return None, None
+        return None
     if lte is not None and price > lte:
-        return None, None
+        return None
     if qty <= 0:
-        return None, None
+        return None
+    out = dict(o)
+    out['_kind'] = kind
+    return out
 
-    if o['custom_rate_pct'] is not None:
-        amt = round(net * (o['custom_rate_pct'] / 100.0), 2)
-        label = _fmt_rate_pct(o['custom_rate_pct'])
-        return amt, label
-    if o['fixed_per_unit'] is not None:
-        amt = round(qty * o['fixed_per_unit'], 2)
-        label = f"฿{o['fixed_per_unit']:.2f}/หน่วย"
-        return amt, label
-    return None, None
+
+def _override_commission_from_rule(line, rule):
+    """Apply a matched override rule to a line. Returns commission amount."""
+    qty = line.get('qty') or 0
+    net = line.get('line_net') or 0
+    if rule['custom_rate_pct'] is not None:
+        return round(net * (rule['custom_rate_pct'] / 100.0), 2)
+    if rule['fixed_per_unit'] is not None:
+        return round(qty * rule['fixed_per_unit'], 2)
+    return None
 
 
 def _override_commission(line):
-    """Backward-compat shim: just the commission, not the label."""
-    amt, _ = _resolve_override(line, _load_overrides())
-    return amt
+    """Backward-compat shim: just the commission amount (no label)."""
+    rule = _resolve_override(line, _load_overrides())
+    if rule is None:
+        return None
+    return _override_commission_from_rule(line, rule)
+
+
+def _format_override_label(rule, line, tier_code):
+    """Compose the rate-column label for a matched override.
+
+    Brand-level   → 'Tier <X> <BRAND> <rate>%'   (e.g. 'Tier A SOMIC 2%')
+    Product-level → '<rate>%' or '฿<n>/หน่วย'    (per-product rule)
+    """
+    if rule['_kind'] == 'brand' and rule['custom_rate_pct'] is not None:
+        rate = _fmt_rate_pct(rule['custom_rate_pct'])
+        brand = (line.get('sendy_brand_name') or '').strip() or 'override'
+        return f'Tier {tier_code} {brand} {rate}'
+    if rule['custom_rate_pct'] is not None:
+        return _fmt_rate_pct(rule['custom_rate_pct'])
+    if rule['fixed_per_unit'] is not None:
+        return f"฿{rule['fixed_per_unit']:g}/หน่วย"
+    return ''
 
 
 def _month_bounds(year_month):
@@ -636,13 +659,25 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
         rate_pct = rate_own if kind == 'own' else rate_third
         line = dict(r)
         line['salesperson_code'] = salesperson_code
-        ov_amt, ov_label = _resolve_override(line, overrides)
-        if ov_amt is not None:
-            commission = ov_amt
-            rate_label = ov_label
+
+        rule = _resolve_override(line, overrides)
+        if rule is not None:
+            commission = _override_commission_from_rule(line, rule)
+            rate_label = _format_override_label(rule, line, tier_code)
+            is_override = True
         else:
             commission = round((r['line_net'] or 0) * rate_pct / 100.0, 2)
             rate_label = _fmt_rate_pct(rate_pct)
+            is_override = False
+
+        # Freebies (sold at 0 baht) earn no commission and the rate
+        # column should reflect that — show "0%" regardless of brand or
+        # tier. Likewise for any line that produced 0 commission (qty=0
+        # etc) — keep the column consistent.
+        if (r['unit_price'] or 0) == 0 or (r['line_net'] or 0) == 0:
+            commission = 0.0
+            rate_label = '0%'
+            is_override = False
         out_rows.append({
             'product_code':       r['product_code'],
             'product_name_raw':   r['product_name_raw'],
@@ -658,7 +693,7 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
             'rate_label':         rate_label,
             'commission':         commission,
             'sendy_product_id':   r['sendy_product_id'],
-            'is_override':        ov_amt is not None,
+            'is_override':        is_override,
         })
 
     header = {
