@@ -40,6 +40,13 @@ _DB_PATH = os.environ.get(
 )
 
 
+def _fmt_rate_pct(rate):
+    """'2.0' → '2%', '2.5' → '2.5%', '10.0' → '10%'."""
+    if rate == int(rate):
+        return f'{int(rate)}%'
+    return f'{rate:g}%'
+
+
 # ── Brand classifier ────────────────────────────────────────────────────────
 # Used as fallback when express_sales.brand_kind is NULL — for example a
 # brand-new product imported after the brand_map was last refreshed. The
@@ -205,7 +212,7 @@ def _resolve_override(line, overrides):
 
     if o['custom_rate_pct'] is not None:
         amt = round(net * (o['custom_rate_pct'] / 100.0), 2)
-        label = f"{o['custom_rate_pct']:.1f}% (override)"
+        label = _fmt_rate_pct(o['custom_rate_pct'])
         return amt, label
     if o['fixed_per_unit'] is not None:
         amt = round(qty * o['fixed_per_unit'], 2)
@@ -635,7 +642,7 @@ def get_invoice_line_breakdown(year_month, salesperson_code, invoice_no, db_path
             rate_label = ov_label
         else:
             commission = round((r['line_net'] or 0) * rate_pct / 100.0, 2)
-            rate_label = f'{rate_pct:.1f}%'
+            rate_label = _fmt_rate_pct(rate_pct)
         out_rows.append({
             'product_code':       r['product_code'],
             'product_name_raw':   r['product_name_raw'],
