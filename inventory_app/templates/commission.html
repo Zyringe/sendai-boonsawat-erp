@@ -27,22 +27,26 @@
 {# ── Summary cards ───────────────────────────────────────────────────────── #}
 <div class="row g-3 mb-3">
   <div class="col-md-3"><div class="card"><div class="card-body">
-    <div class="text-subtle small">เก็บได้รวม (net)</div>
+    <div class="text-subtle small">เก็บได้ (net)</div>
     <div class="fs-4 fw-600 font-mono">{{ '{:,.2f}'.format(summary.total_collected_net or 0) }}</div>
+    <div class="text-subtle" style="font-size: 0.7rem">เดือนนี้</div>
   </div></div></div>
   <div class="col-md-3"><div class="card"><div class="card-body">
-    <div class="text-subtle small">Commission ค้างจ่าย</div>
+    <div class="text-subtle small">Commission รวม</div>
     <div class="fs-4 fw-600 font-mono text-success">{{ '{:,.2f}'.format(summary.total_commission or 0) }}</div>
+    <div class="text-subtle" style="font-size: 0.7rem">เดือนนี้</div>
   </div></div></div>
   <div class="col-md-3"><div class="card"><div class="card-body">
     <div class="text-subtle small">จ่ายแล้ว</div>
     <div class="fs-4 fw-600 font-mono text-primary">{{ '{:,.2f}'.format(summary.total_paid or 0) }}</div>
+    <div class="text-subtle" style="font-size: 0.7rem">เดือนนี้</div>
   </div></div></div>
   <div class="col-md-3"><div class="card"><div class="card-body">
-    <div class="text-subtle small">คงเหลือ</div>
+    <div class="text-subtle small">คงเหลือสะสม</div>
     <div class="fs-4 fw-600 font-mono {% if summary.total_remaining > 0 %}text-warning{% else %}text-subtle{% endif %}">
       {{ '{:,.2f}'.format(summary.total_remaining or 0) }}
     </div>
+    <div class="text-subtle" style="font-size: 0.7rem">ทุกใบที่ยังไม่จ่าย</div>
   </div></div></div>
 </div>
 
