@@ -12,7 +12,7 @@ Usage:
     python scripts/import_express.py payments_out  /path/to/จ่ายชำระหนี้.csv
     python scripts/import_express.py sales         /path/to/ขาย.csv
 
-Add --dry-run to parse-only without writing to DB. Add --company STD
+Add --dry-run to parse-only without writing to DB. Add --company SD
 to attribute the batch to Sendai Trading instead of BSN (default).
 
 Lookup backfill (customer_id, supplier_id) runs best-effort by exact
@@ -339,7 +339,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('file_type', choices=sorted(_IMPORTERS))
     ap.add_argument('path', type=Path)
-    ap.add_argument('--company', default='BSN', help='company code (BSN or STD)')
+    ap.add_argument('--company', default='BSN', help='company code (BSN or SD)')
     ap.add_argument('--dry-run', action='store_true')
     ap.add_argument('--full', action='store_true',
                     help='disable incremental dedup (re-imports duplicate doc_no)')

@@ -9,7 +9,7 @@
 -- Four new tables:
 --
 --   po_sequences         — yearly per-company counter for PO numbers.
---                          Format: BSN-PO-2026-0001, STD-PO-2026-0001.
+--                          Format: BSN-PO-2026-0001, SD-PO-2026-0001.
 --                          Resets to 0001 on January 1 (Q1=a, Q2=a).
 --                          NOT audited (internal counter).
 --

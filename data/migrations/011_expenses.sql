@@ -5,7 +5,7 @@
 -- and unblock proper P&L reporting (currently only the revenue side
 -- exists in sales_transactions / purchase_transactions).
 --
---   companies          — 2 legal entities (BSN, STD). Reused by E1
+--   companies          — 2 legal entities (BSN, SD). Reused by E1
 --                        (purchase_orders) and any future per-company
 --                        FK on existing tables.
 --
@@ -40,7 +40,7 @@ BEGIN;
 -- ── companies ─────────────────────────────────────────────────────────────
 CREATE TABLE companies (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    code        TEXT    UNIQUE NOT NULL,            -- 'BSN', 'STD'
+    code        TEXT    UNIQUE NOT NULL,            -- 'BSN', 'SD'
     name_th     TEXT    NOT NULL,                    -- legal Thai name
     short_name  TEXT,                                -- display short
     tax_id      TEXT,                                -- เลขผู้เสียภาษี 13 หลัก (NULL until known)
@@ -52,7 +52,7 @@ CREATE TABLE companies (
 
 INSERT INTO companies (code, name_th, short_name) VALUES
     ('BSN', 'บุญสวัสดิ์ นำชัย', 'BSN'),
-    ('STD', 'เซ็นไดเทรดเดิ้ง',  'Sendai Trading');
+    ('SD',  'เซ็นไดเทรดเดิ้ง',  'Sendai Trading');
 
 -- ── expense_categories ────────────────────────────────────────────────────
 CREATE TABLE expense_categories (
