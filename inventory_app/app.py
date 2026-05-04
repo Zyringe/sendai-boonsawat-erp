@@ -1,7 +1,10 @@
 import io
 import os
 import sys
-from datetime import date
+import sqlite3
+import shutil
+import tempfile
+from datetime import date, datetime
 
 from flask import (Flask, render_template, request, redirect, url_for,
                    flash, session, jsonify, abort, send_file)
@@ -262,6 +265,52 @@ def download_db():
     return send_file(config.DATABASE_PATH, as_attachment=True, download_name='inventory.db')
 
 
+# Tables compared during /admin/upload-db. If any of these have MORE rows in the
+# current (production) DB than in the uploaded file, the upload is blocked
+# pending explicit confirmation — those are the tables where data is added
+# through the running app, so a higher count = data the upload would erase.
+_UPLOAD_DIFF_TABLES = (
+    'sales_transactions', 'purchase_transactions',
+    'received_payments', 'paid_invoices',
+    'product_code_mapping',
+    'express_sales', 'express_payments_in', 'express_payments_out',
+    'commission_payouts', 'payout_invoices',
+    'transactions',
+    'products', 'customers',
+)
+
+
+def _count_rows(db_path, table):
+    try:
+        conn = sqlite3.connect(db_path)
+        cur = conn.execute(f"SELECT COUNT(*) FROM {table}")
+        n = cur.fetchone()[0]
+        conn.close()
+        return n
+    except sqlite3.OperationalError:
+        return None  # table doesn't exist
+
+
+def _diff_db_row_counts(current_path, uploaded_path):
+    """Return list of dicts comparing row counts between two DB files.
+    Includes a 'warning' flag when the current count exceeds the uploaded count
+    (indicating data would be lost on replace)."""
+    rows = []
+    for table in _UPLOAD_DIFF_TABLES:
+        cur = _count_rows(current_path, table)
+        upl = _count_rows(uploaded_path, table)
+        if cur is None and upl is None:
+            continue
+        rows.append({
+            'table':    table,
+            'current':  cur if cur is not None else 0,
+            'uploaded': upl if upl is not None else 0,
+            'warning':  (cur or 0) > (upl or 0),
+            'missing_in_upload': upl is None,
+        })
+    return rows
+
+
 @app.route('/admin/upload-db', methods=['GET', 'POST'])
 def upload_db():
     if session.get('role') != 'admin':
@@ -273,13 +322,81 @@ def upload_db():
         if not f or not f.filename.endswith('.db'):
             flash('กรุณาเลือกไฟล์ .db', 'danger')
             return redirect(request.url)
-        import shutil, tempfile
+
         tmp = tempfile.mktemp(suffix='.db')
         f.save(tmp)
+
+        diff_rows = _diff_db_row_counts(config.DATABASE_PATH, tmp)
+        warnings = [d for d in diff_rows if d['warning']]
+        confirmed = request.form.get('confirm') == 'yes'
+
+        if warnings and not confirmed:
+            # Hold the uploaded file in a known spot so user can confirm without re-uploading.
+            hold_dir = os.path.join(os.path.dirname(config.DATABASE_PATH), 'pending_uploads')
+            os.makedirs(hold_dir, exist_ok=True)
+            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+            hold_path = os.path.join(hold_dir, f'pending-{ts}.db')
+            shutil.move(tmp, hold_path)
+            session['pending_upload_path'] = hold_path
+            return render_template(
+                'admin_upload_db.html',
+                diff_rows=diff_rows,
+                warnings=warnings,
+                pending=True,
+            )
+
+        # Always backup the current DB before replacing.
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_dir = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), '..', 'data', 'backups')
+        )
+        os.makedirs(backup_dir, exist_ok=True)
+        backup_path = os.path.join(backup_dir, f'inventory-pre-upload-{ts}.db')
+        try:
+            shutil.copy(config.DATABASE_PATH, backup_path)
+        except FileNotFoundError:
+            backup_path = None  # no current DB; skip backup
+
         shutil.move(tmp, config.DATABASE_PATH)
-        flash('อัปโหลด database สำเร็จ', 'success')
+        if backup_path:
+            flash(f'อัปโหลด DB สำเร็จ. Backup เก็บไว้ที่ {os.path.basename(backup_path)}', 'success')
+        else:
+            flash('อัปโหลด DB สำเร็จ', 'success')
         return redirect(url_for('dashboard'))
     return render_template('admin_upload_db.html')
+
+
+@app.route('/admin/upload-db/confirm', methods=['POST'])
+def upload_db_confirm():
+    """Second step after warning page: actually apply the held upload."""
+    if session.get('role') != 'admin':
+        abort(403)
+    if not app.config['DB_ROUTES_ENABLED']:
+        abort(403)
+
+    hold_path = session.pop('pending_upload_path', None)
+    if not hold_path or not os.path.exists(hold_path):
+        flash('ไม่พบไฟล์ที่รออัปโหลด — กรุณาอัปโหลดใหม่', 'danger')
+        return redirect(url_for('upload_db'))
+
+    if request.form.get('action') == 'cancel':
+        try:
+            os.remove(hold_path)
+        except OSError:
+            pass
+        flash('ยกเลิกการอัปโหลดแล้ว', 'info')
+        return redirect(url_for('upload_db'))
+
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    backup_dir = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), '..', 'data', 'backups')
+    )
+    os.makedirs(backup_dir, exist_ok=True)
+    backup_path = os.path.join(backup_dir, f'inventory-pre-upload-{ts}.db')
+    shutil.copy(config.DATABASE_PATH, backup_path)
+    shutil.move(hold_path, config.DATABASE_PATH)
+    flash(f'อัปโหลด DB สำเร็จ. Backup เก็บไว้ที่ {os.path.basename(backup_path)}', 'success')
+    return redirect(url_for('dashboard'))
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 

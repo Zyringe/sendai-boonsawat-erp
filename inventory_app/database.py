@@ -1,7 +1,14 @@
 import sqlite3
 import os
+import time
+import hashlib
+import glob
 from config import DATABASE_PATH
 from werkzeug.security import generate_password_hash
+
+MIGRATIONS_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), '..', 'data', 'migrations')
+)
 
 SCHEMA = """
 PRAGMA encoding = 'UTF-8';
@@ -141,6 +148,16 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_table_row ON audit_log(table_name, row_id);
 
+-- Tracks which numbered SQL migrations from data/migrations/ have been applied.
+-- run_pending_migrations() reads this table on every boot.
+CREATE TABLE IF NOT EXISTS applied_migrations (
+    filename     TEXT    PRIMARY KEY,
+    applied_at   TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+    applied_by   TEXT,
+    sha256       TEXT,
+    duration_ms  INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS received_payments (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     re_no        TEXT    NOT NULL UNIQUE,
@@ -262,6 +279,102 @@ def get_connection():
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+def _list_migration_files():
+    """Return numbered .sql files in data/migrations/ sorted by name.
+    Excludes .rollback.sql files."""
+    if not os.path.isdir(MIGRATIONS_DIR):
+        return []
+    files = []
+    for path in glob.glob(os.path.join(MIGRATIONS_DIR, '*.sql')):
+        name = os.path.basename(path)
+        if name.endswith('.rollback.sql'):
+            continue
+        files.append(name)
+    return sorted(files)
+
+
+def _file_sha256(path):
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(8192), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _table_exists(conn, name):
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (name,)
+    ).fetchone()
+    return row is not None
+
+
+def run_pending_migrations(conn, verbose=True):
+    """Apply any numbered .sql migration in data/migrations/ that isn't
+    yet recorded in applied_migrations.
+
+    Bootstrap: on a database that pre-dates this runner (i.e. brands
+    table exists from migration 004 but applied_migrations is empty),
+    backfill ALL existing migration files as already-applied. This
+    avoids re-running migrations that were applied manually before this
+    code shipped.
+
+    On a fresh DB (no brands table), every migration runs in order."""
+    files = _list_migration_files()
+    if not files:
+        return []
+
+    applied = {r[0] for r in conn.execute(
+        "SELECT filename FROM applied_migrations"
+    ).fetchall()}
+
+    # Bootstrap path: existing DB with manual migrations already applied
+    if not applied and _table_exists(conn, 'brands'):
+        for filename in files:
+            path = os.path.join(MIGRATIONS_DIR, filename)
+            conn.execute(
+                """INSERT OR IGNORE INTO applied_migrations
+                       (filename, applied_by, sha256)
+                   VALUES (?, ?, ?)""",
+                (filename, 'bootstrap-backfill', _file_sha256(path))
+            )
+        conn.commit()
+        if verbose:
+            print(f"[migration] bootstrap: backfilled {len(files)} migrations as applied")
+        return []
+
+    pending = [f for f in files if f not in applied]
+    if not pending:
+        return []
+
+    ran = []
+    for filename in pending:
+        path = os.path.join(MIGRATIONS_DIR, filename)
+        with open(path, 'r', encoding='utf-8') as f:
+            sql = f.read()
+        t0 = time.time()
+        try:
+            conn.executescript(sql)
+        except Exception as e:
+            # Migration files wrap their work in BEGIN/COMMIT; on failure
+            # SQLite will have rolled back the transaction. Surface the
+            # error loudly — boot will fail, which is the safe default.
+            print(f"[migration] FAILED {filename}: {e}")
+            raise
+        duration_ms = int((time.time() - t0) * 1000)
+        conn.execute(
+            """INSERT INTO applied_migrations
+                   (filename, applied_by, sha256, duration_ms)
+               VALUES (?, 'auto', ?, ?)""",
+            (filename, _file_sha256(path), duration_ms)
+        )
+        conn.commit()
+        ran.append(filename)
+        if verbose:
+            print(f"[migration] applied {filename} in {duration_ms}ms")
+    return ran
 
 
 def init_db():
@@ -396,4 +509,6 @@ def init_db():
             ('admin', generate_password_hash(_cfg.ADMIN_PASSWORD, method='pbkdf2:sha256'), 'Administrator', 'admin')
         )
     conn.commit()
+    # Apply any pending numbered migrations from data/migrations/.
+    run_pending_migrations(conn)
     conn.close()

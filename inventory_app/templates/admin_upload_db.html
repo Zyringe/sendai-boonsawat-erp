@@ -2,20 +2,71 @@
 {% block page_title %}Upload Database{% endblock %}
 
 {% block content %}
-<div class="container-fluid py-4" style="max-width:480px">
+<div class="container-fluid py-4" style="max-width:760px">
   <h4 class="mb-4"><i class="bi bi-cloud-upload me-2"></i>Upload Database</h4>
-  <div class="alert alert-warning">
-    <i class="bi bi-exclamation-triangle me-1"></i>
-    การ upload จะ <strong>แทนที่ database ทั้งหมด</strong> บนเซิร์ฟเวอร์ทันที
-  </div>
-  <form method="post" enctype="multipart/form-data">
-    <div class="mb-3">
-      <label class="form-label">เลือกไฟล์ .db</label>
-      <input type="file" name="db_file" accept=".db" class="form-control" required>
+
+  {% if pending %}
+    <div class="alert alert-danger">
+      <h5 class="mb-2"><i class="bi bi-exclamation-octagon-fill me-1"></i>หยุดก่อน — DB ปัจจุบันมีข้อมูลใหม่กว่าไฟล์ที่จะอัปโหลด</h5>
+      <p class="mb-1">ถ้าเดินหน้าต่อ ข้อมูลด้านล่างจะ <strong>หายถาวร</strong>:</p>
+      <ul class="mb-0">
+        {% for w in warnings %}
+          <li><code>{{ w.table }}</code>: ปัจจุบัน <strong>{{ w.current }}</strong> rows → ไฟล์อัปโหลดมี <strong>{{ w.uploaded }}</strong> rows
+            (ขาดไป <strong>{{ w.current - w.uploaded }}</strong>)
+            {% if w.missing_in_upload %}<span class="badge bg-warning text-dark">ตารางหายในไฟล์</span>{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
     </div>
-    <button type="submit" class="btn btn-danger w-100">
-      <i class="bi bi-cloud-upload me-1"></i>Upload และแทนที่ Database
-    </button>
-  </form>
+
+    <div class="card mb-3">
+      <div class="card-header">เปรียบเทียบทั้งหมด (current vs uploaded)</div>
+      <div class="table-responsive">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Table</th><th class="text-end">Current</th><th class="text-end">Uploaded</th><th class="text-end">Δ</th></tr></thead>
+          <tbody>
+            {% for d in diff_rows %}
+              <tr class="{% if d.warning %}table-danger{% endif %}">
+                <td><code>{{ d.table }}</code></td>
+                <td class="text-end">{{ d.current }}</td>
+                <td class="text-end">{{ d.uploaded }}</td>
+                <td class="text-end">
+                  {% set delta = d.uploaded - d.current %}
+                  {% if delta > 0 %}<span class="text-success">+{{ delta }}</span>
+                  {% elif delta < 0 %}<span class="text-danger">{{ delta }}</span>
+                  {% else %}0{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <form method="post" action="{{ url_for('upload_db_confirm') }}" class="d-flex gap-2">
+      <button type="submit" name="action" value="cancel" class="btn btn-secondary">
+        <i class="bi bi-x-lg me-1"></i>ยกเลิก (ลบไฟล์ที่อัปโหลด)
+      </button>
+      <button type="submit" name="action" value="confirm" class="btn btn-danger flex-grow-1"
+              onclick="return confirm('ยืนยันแทนที่ DB? ข้อมูลที่ใหม่กว่าจะหาย — ไม่สามารถกู้คืนได้นอกจากใช้ backup');">
+        <i class="bi bi-cloud-upload-fill me-1"></i>เข้าใจความเสี่ยงแล้ว — แทนที่ DB
+      </button>
+    </form>
+  {% else %}
+    <div class="alert alert-warning">
+      <i class="bi bi-exclamation-triangle me-1"></i>
+      การ upload จะ <strong>แทนที่ database ทั้งหมด</strong> บนเซิร์ฟเวอร์
+      <br><small class="text-muted">ระบบจะ backup DB ปัจจุบันให้อัตโนมัติก่อนแทนที่ และจะเตือนถ้า DB ปัจจุบันมีข้อมูลใหม่กว่าไฟล์ที่จะอัปโหลด</small>
+    </div>
+    <form method="post" enctype="multipart/form-data">
+      <div class="mb-3">
+        <label class="form-label">เลือกไฟล์ .db</label>
+        <input type="file" name="db_file" accept=".db" class="form-control" required>
+      </div>
+      <button type="submit" class="btn btn-primary w-100">
+        <i class="bi bi-cloud-upload me-1"></i>อัปโหลด (จะตรวจ diff ก่อนแทนที่)
+      </button>
+    </form>
+  {% endif %}
 </div>
 {% endblock %}
