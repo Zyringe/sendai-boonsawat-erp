@@ -48,20 +48,30 @@
       {% endif %}
       {% if data.region %}
       <div>
-        <div class="text-subtle small mb-1">เขตการขาย (snapshot)</div>
-        <div><span class="badge badge-info">{{ data.region }}</span></div>
+        <div class="text-subtle small mb-1">เขตการขาย</div>
+        <div>
+          <span class="badge badge-info">{{ data.region }}</span>
+          {% if data.region_code and data.region != data.region_code %}
+          <span class="text-subtle small ms-1 font-mono">{{ data.region_code }}</span>
+          {% endif %}
+        </div>
       </div>
       {% endif %}
       {% if data.salesperson %}
       <div>
-        <div class="text-subtle small mb-1">พนักงานขาย (snapshot)</div>
+        <div class="text-subtle small mb-1">พนักงานขาย</div>
         <div class="fw-500">
           {{ data.salesperson }}
-          {% set sp_code = data.salesperson.split('/')[-1] if '/' in data.salesperson else data.salesperson %}
-          {% if sp_code in orphan_codes %}
+          {% if data.salesperson_orphan %}
             <span class="badge bg-warning text-dark ms-1" title="code นี้ไม่อยู่ใน salespersons master">⚠️ orphan</span>
           {% endif %}
         </div>
+      </div>
+      {% endif %}
+      {% if data.customer_code and not master %}
+      <div>
+        <div class="text-subtle small mb-1">Master record</div>
+        <div><span class="badge bg-warning text-dark">⚠️ ยังไม่มีใน master</span></div>
       </div>
       {% endif %}
       {% set ci = data.customer_info %}
@@ -116,17 +126,11 @@
     <span class="badge bg-secondary ms-2">master record</span>
   </div>
   <div class="card-body py-3">
-    <div class="alert alert-info py-2 mb-3 small">
-      <i class="bi bi-info-circle me-1"></i>
-      ค่าด้านบน (snapshot) มาจากตอน BSN import — หน้านี้จะอัปเดตหลัง UI migration (D1) เสร็จ
-      ระหว่างนี้ การเปลี่ยนค่าด้านล่างจะบันทึกที่ <strong>master record</strong> (`customers` table)
-      และมี audit log อัตโนมัติ
-    </div>
     <form method="post"
           action="{{ url_for('customer_reassign', customer_code=master.code) }}"
           class="row g-2 align-items-end">
       <div class="col-md-4">
-        <label class="form-label small mb-1">Salesperson (master)</label>
+        <label class="form-label small mb-1">Salesperson</label>
         <select name="salesperson" class="form-select form-select-sm">
           <option value="">— ไม่กำหนด —</option>
           {% for sp in salespersons %}
@@ -143,7 +147,7 @@
         </select>
       </div>
       <div class="col-md-4">
-        <label class="form-label small mb-1">Region (master)</label>
+        <label class="form-label small mb-1">Region</label>
         <select name="region_id" class="form-select form-select-sm">
           <option value="">— ไม่กำหนด —</option>
           {% for r in regions %}
