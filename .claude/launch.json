@@ -4,7 +4,7 @@
     {
       "name": "Flask ERP Server",
       "runtimeExecutable": "/Users/putty/.virtualenvs/erp/bin/python",
-      "runtimeArgs": ["/Users/putty/Documents/Sendai-Boonsawat/ERP/inventory_app/app.py"],
+      "runtimeArgs": ["/Users/putty/Documents/Sendai-Boonsawat/sendy_erp/inventory_app/app.py"],
       "port": 5001
     }
   ]
