@@ -2011,6 +2011,105 @@ def commission_export():
                      download_name=f'commission_{year_month}.csv')
 
 
+# ── Commission Overrides (admin-only CRUD) ───────────────────────────────────
+# Rules sit in commission_overrides; the engine caches them in-process
+# (commission._OVERRIDES_CACHE), so every successful write here calls
+# clear_override_cache() so /commission picks up the change without restart.
+
+def _require_admin():
+    if session.get('role') != 'admin':
+        abort(403)
+
+
+def _safe_clear_override_cache():
+    """Refresh the in-process override cache after a write. Must not raise:
+    a stale cache is recoverable on next process restart, a 500 after a
+    successful DB write isn't."""
+    try:
+        commission_mod.clear_override_cache()
+    except Exception as e:
+        flash(f'บันทึกแล้ว แต่ refresh cache ล้มเหลว: {e}. รีสตาร์ท Sendy ถ้าค่ายังไม่อัปเดต',
+              'warning')
+
+
+@app.route('/commission/overrides')
+def commission_overrides_list():
+    _require_admin()
+    rules = models.list_commission_overrides(active_only=False)
+    return render_template('commission_overrides_list.html', rules=rules)
+
+
+@app.route('/commission/overrides/new', methods=['GET', 'POST'])
+def commission_overrides_new():
+    _require_admin()
+    if request.method == 'POST':
+        result = models.create_commission_override(request.form)
+        if result['ok']:
+            _safe_clear_override_cache()
+            flash(f'เพิ่ม rule #{result["id"]} เรียบร้อย', 'success')
+            return redirect(url_for('commission_overrides_list'))
+        flash(f'ไม่สามารถบันทึก: {result["error"]}', 'danger')
+
+    return render_template(
+        'commission_overrides_form.html',
+        rule=None,
+        form=request.form if request.method == 'POST' else None,
+        products=models.get_products(per_page=10000)[0],
+        brands=models.get_brands(),
+        salespersons=models.get_active_salespersons(),
+    )
+
+
+@app.route('/commission/overrides/<int:override_id>/edit', methods=['GET', 'POST'])
+def commission_overrides_edit(override_id):
+    _require_admin()
+    rule = models.get_commission_override(override_id)
+    if not rule:
+        abort(404)
+
+    if request.method == 'POST':
+        result = models.update_commission_override(override_id, request.form)
+        if result['ok']:
+            _safe_clear_override_cache()
+            flash(f'อัปเดต rule #{override_id} เรียบร้อย', 'success')
+            return redirect(url_for('commission_overrides_list'))
+        flash(f'ไม่สามารถบันทึก: {result["error"]}', 'danger')
+
+    return render_template(
+        'commission_overrides_form.html',
+        rule=rule,
+        form=request.form if request.method == 'POST' else None,
+        products=models.get_products(per_page=10000)[0],
+        brands=models.get_brands(),
+        salespersons=models.get_active_salespersons(),
+    )
+
+
+@app.route('/commission/overrides/<int:override_id>/toggle', methods=['POST'])
+def commission_overrides_toggle(override_id):
+    _require_admin()
+    result = models.toggle_commission_override(override_id)
+    if result['ok']:
+        commission_mod.clear_override_cache()
+        state = 'active' if result['is_active'] else 'inactive'
+        flash(f'rule #{override_id} → {state}', 'success')
+    else:
+        flash(f'ไม่สามารถ toggle: {result["error"]}', 'danger')
+    return redirect(url_for('commission_overrides_list'))
+
+
+@app.route('/commission/overrides/<int:override_id>/delete', methods=['POST'])
+def commission_overrides_delete(override_id):
+    _require_admin()
+    result = models.delete_commission_override(override_id)
+    if result['ok']:
+        commission_mod.clear_override_cache()
+        flash(f'ลบ rule #{override_id} เรียบร้อย', 'success')
+    else:
+        flash(f'ไม่สามารถลบ: {result["error"]}', 'danger')
+    return redirect(url_for('commission_overrides_list'))
+
+
 @app.route('/express/import', methods=['GET', 'POST'])
 def express_import():
     """Upload & import a weekly Express export."""

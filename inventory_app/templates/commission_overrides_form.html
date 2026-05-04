@@ -1,0 +1,173 @@
+{% extends 'base.html' %}
+{% block title %}{{ 'แก้ไข rule' if rule else 'เพิ่ม rule' }} – Commission{% endblock %}
+{% block page_title %}{{ 'แก้ไข rule #' + rule.id|string if rule else 'เพิ่ม rule commission' }}{% endblock %}
+
+{% block content %}
+
+{% set v = form or rule or {} %}
+{% set initial_scope = v.scope if v.get('scope') else ('product' if (rule and rule.product_id) else 'brand') %}
+{% set initial_kind  = v.rate_kind if v.get('rate_kind') else ('fixed' if (rule and rule.fixed_per_unit is not none) else 'percent') %}
+{% set is_active_val = (v.get('is_active') in (1, '1', 'on', True)) if (form is not none) else (rule.is_active if rule else 1) %}
+
+<form method="post" class="row g-3">
+
+  {# ── Scope ──────────────────────────────────────────────────────────── #}
+  <div class="col-12">
+    <label class="form-label small mb-1 fw-600">Scope</label>
+    <div class="btn-group" role="group">
+      <input type="radio" class="btn-check" name="scope" id="scope-product"
+             value="product" {% if initial_scope == 'product' %}checked{% endif %}>
+      <label class="btn btn-outline-primary btn-sm" for="scope-product">
+        <i class="bi bi-box-seam me-1"></i>Product
+      </label>
+      <input type="radio" class="btn-check" name="scope" id="scope-brand"
+             value="brand" {% if initial_scope == 'brand' %}checked{% endif %}>
+      <label class="btn btn-outline-primary btn-sm" for="scope-brand">
+        <i class="bi bi-bookmark me-1"></i>Brand
+      </label>
+    </div>
+  </div>
+
+  <div class="col-md-8" id="product-block">
+    <label class="form-label small mb-1">สินค้า</label>
+    <select name="product_id" class="form-select form-select-sm">
+      <option value="">— เลือกสินค้า —</option>
+      {% for p in products %}
+      <option value="{{ p.id }}"
+        {% if (v.product_id and v.product_id|string == p.id|string) %}selected{% endif %}>
+        #{{ p.sku }} — {{ p.product_name }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="col-md-8" id="brand-block">
+    <label class="form-label small mb-1">แบรนด์</label>
+    <select name="brand_id" class="form-select form-select-sm">
+      <option value="">— เลือกแบรนด์ —</option>
+      {% for b in brands %}
+      <option value="{{ b.id }}"
+        {% if (v.brand_id and v.brand_id|string == b.id|string) %}selected{% endif %}>
+        {{ b.name }}{% if b.is_own_brand %} (own){% endif %}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+
+  {# ── Salesperson (optional) ─────────────────────────────────────────── #}
+  <div class="col-md-4">
+    <label class="form-label small mb-1">Salesperson (ไม่ระบุ = ทุกคน)</label>
+    <select name="salesperson_code" class="form-select form-select-sm">
+      <option value="">— ทุกคน —</option>
+      {% for sp in salespersons %}
+      <option value="{{ sp.code }}"
+        {% if v.salesperson_code == sp.code %}selected{% endif %}>
+        {{ sp.code }} — {{ sp.name }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+
+  {# ── Rate kind ──────────────────────────────────────────────────────── #}
+  <div class="col-12">
+    <label class="form-label small mb-1 fw-600">ประเภทอัตรา</label>
+    <div class="btn-group" role="group">
+      <input type="radio" class="btn-check" name="rate_kind" id="kind-fixed"
+             value="fixed" {% if initial_kind == 'fixed' %}checked{% endif %}>
+      <label class="btn btn-outline-primary btn-sm" for="kind-fixed">
+        Fixed (฿/หน่วย)
+      </label>
+      <input type="radio" class="btn-check" name="rate_kind" id="kind-percent"
+             value="percent" {% if initial_kind == 'percent' %}checked{% endif %}>
+      <label class="btn btn-outline-primary btn-sm" for="kind-percent">
+        Percentage (%)
+      </label>
+    </div>
+  </div>
+
+  <div class="col-md-3" id="fixed-block">
+    <label class="form-label small mb-1">฿ ต่อหน่วย</label>
+    <input type="number" step="0.01" min="0" name="fixed_per_unit"
+           class="form-control form-control-sm"
+           value="{{ v.fixed_per_unit if v.fixed_per_unit is not none else '' }}"
+           placeholder="เช่น 5.00">
+  </div>
+
+  <div class="col-md-3" id="percent-block">
+    <label class="form-label small mb-1">% ของ net</label>
+    <input type="number" step="0.01" min="0" max="100" name="custom_rate_pct"
+           class="form-control form-control-sm"
+           value="{{ v.custom_rate_pct if v.custom_rate_pct is not none else '' }}"
+           placeholder="เช่น 2.00">
+  </div>
+
+  {# ── Price gate (optional) ──────────────────────────────────────────── #}
+  <div class="col-12">
+    <hr class="my-2">
+    <label class="form-label small mb-1 fw-600 text-subtle">Price gate (optional)</label>
+    <div class="small text-subtle">ใช้เมื่ออยากให้ rule มีผลเฉพาะช่วงราคา. เว้นว่าง = ไม่จำกัด.</div>
+  </div>
+  <div class="col-md-3">
+    <label class="form-label small mb-1">price &gt; (THB)</label>
+    <input type="number" step="0.01" min="0" name="apply_when_price_gt"
+           class="form-control form-control-sm"
+           value="{{ v.apply_when_price_gt if v.apply_when_price_gt is not none else '0' }}">
+    <div class="form-text small">default 0 (ไม่รวมของแถม)</div>
+  </div>
+  <div class="col-md-3">
+    <label class="form-label small mb-1">price ≤ (THB)</label>
+    <input type="number" step="0.01" min="0" name="apply_when_price_lte"
+           class="form-control form-control-sm"
+           value="{{ v.apply_when_price_lte if v.apply_when_price_lte is not none else '' }}"
+           placeholder="ไม่จำกัด">
+  </div>
+
+  {# ── Effective date + note + active ─────────────────────────────────── #}
+  <div class="col-md-3">
+    <label class="form-label small mb-1">Effective from</label>
+    <input type="date" name="effective_from" class="form-control form-control-sm"
+           value="{{ v.effective_from or '' }}">
+  </div>
+  <div class="col-md-3 d-flex align-items-end">
+    <div class="form-check">
+      <input type="checkbox" class="form-check-input" id="is_active"
+             name="is_active" value="1" {% if is_active_val %}checked{% endif %}>
+      <label class="form-check-label small fw-600" for="is_active">
+        Active (engine ใช้ rule นี้)
+      </label>
+    </div>
+  </div>
+  <div class="col-12">
+    <label class="form-label small mb-1">Note</label>
+    <textarea name="note" class="form-control form-control-sm" rows="2"
+              placeholder="เหตุผล / ที่มาของ rule (เก็บเป็น human-readable, จะโชว์ในตาราง)">{{ v.note or '' }}</textarea>
+  </div>
+
+  <div class="col-12 d-flex">
+    <a href="{{ url_for('commission_overrides_list') }}"
+       class="btn btn-sm btn-outline-secondary">ยกเลิก</a>
+    <button type="submit" class="btn btn-sm btn-primary ms-auto">
+      <i class="bi bi-save me-1"></i>{{ 'บันทึกการแก้ไข' if rule else 'เพิ่ม rule' }}
+    </button>
+  </div>
+</form>
+
+<script>
+(function () {
+  function refresh() {
+    var scope = document.querySelector('input[name="scope"]:checked').value;
+    document.getElementById('product-block').style.display = scope === 'product' ? '' : 'none';
+    document.getElementById('brand-block').style.display   = scope === 'brand'   ? '' : 'none';
+
+    var kind = document.querySelector('input[name="rate_kind"]:checked').value;
+    document.getElementById('fixed-block').style.display   = kind === 'fixed'   ? '' : 'none';
+    document.getElementById('percent-block').style.display = kind === 'percent' ? '' : 'none';
+  }
+  document.querySelectorAll('input[name="scope"], input[name="rate_kind"]').forEach(function (el) {
+    el.addEventListener('change', refresh);
+  });
+  refresh();
+})();
+</script>
+
+{% endblock %}
