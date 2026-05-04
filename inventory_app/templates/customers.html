@@ -31,6 +31,14 @@
       <div class="col-auto ms-auto align-self-center">
         <span class="text-subtle small">ทั้งหมด {{ total }} ราย</span>
       </div>
+      {% if is_manager %}
+      <div class="col-auto align-self-center">
+        <a href="{{ url_for('customer_bulk_reassign') }}"
+           class="btn btn-sm btn-outline-primary">
+          <i class="bi bi-people-fill me-1"></i>Bulk reassign
+        </a>
+      </div>
+      {% endif %}
     </form>
   </div>
 </div>

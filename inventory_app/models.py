@@ -1448,6 +1448,193 @@ def get_customers(search=None, region=None, page=1, per_page=50):
     return [dict(r) for r in rows], total
 
 
+# ── Customer Assignment (salesperson + region on customers master) ────────────
+# Migration 010 introduced customers.salesperson (TEXT code) + customers.region_id
+# (FK regions.id). The legacy customer_regions table is the *display* source
+# (read by get_customer_summary / get_customers above) until UI migration D1
+# lands. The helpers below write to the MASTER table only — audit triggers on
+# customers cover the change automatically.
+
+def get_active_salespersons():
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT code, name FROM salespersons WHERE is_active = 1 ORDER BY code"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_all_regions():
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, code, name_th FROM regions ORDER BY sort_order, code"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_orphan_salesperson_codes():
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT DISTINCT salesperson AS code
+        FROM customers
+        WHERE salesperson IS NOT NULL
+          AND salesperson != ''
+          AND salesperson NOT IN (SELECT code FROM salespersons)
+    """).fetchall()
+    conn.close()
+    return {r['code'] for r in rows}
+
+
+def get_customer_master(customer_code):
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT code, name, salesperson, region_id FROM customers WHERE code = ?",
+        [customer_code],
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+_BULK_MAX = 5000  # SQLITE_MAX_VARIABLE_NUMBER is 999 on older builds; cap well below.
+
+
+def update_customer_assignment(customer_code, salesperson_code, region_id):
+    sp = (salesperson_code or '').strip() or None
+    rid = region_id if region_id not in ('', None, 'null') else None
+    if rid is not None:
+        try:
+            rid = int(rid)
+        except (ValueError, TypeError):
+            return {'ok': False, 'error': 'region_id ไม่ถูกต้อง'}
+
+    conn = get_connection()
+    try:
+        current = conn.execute(
+            "SELECT salesperson FROM customers WHERE code = ?", (customer_code,)
+        ).fetchone()
+        if current is None:
+            return {'ok': False, 'error': f'ไม่พบ customer code "{customer_code}"'}
+
+        # Skip the active-salesperson check when the value is unchanged so a
+        # customer with a legacy/orphan code can re-save other fields without
+        # being forced to switch salesperson.
+        if sp is not None and sp != current['salesperson']:
+            if not conn.execute(
+                "SELECT 1 FROM salespersons WHERE code = ? AND is_active = 1", (sp,)
+            ).fetchone():
+                return {'ok': False, 'error': f'ไม่พบ salesperson code "{sp}" (หรือ inactive)'}
+        if rid is not None:
+            if not conn.execute("SELECT 1 FROM regions WHERE id = ?", (rid,)).fetchone():
+                return {'ok': False, 'error': f'ไม่พบ region id {rid}'}
+
+        conn.execute(
+            "UPDATE customers SET salesperson = ?, region_id = ? WHERE code = ?",
+            (sp, rid, customer_code),
+        )
+        conn.commit()
+        return {'ok': True, 'error': None}
+    finally:
+        conn.close()
+
+
+def bulk_reassign_customers(customer_codes, salesperson_code, region_id, mode='both'):
+    if mode not in ('salesperson', 'region', 'both'):
+        return {'ok': False, 'updated': 0, 'error': 'mode ไม่ถูกต้อง'}
+    if not customer_codes:
+        return {'ok': False, 'updated': 0, 'error': 'ไม่มีลูกค้าที่เลือก'}
+    if len(customer_codes) > _BULK_MAX:
+        return {'ok': False, 'updated': 0,
+                'error': f'เลือกได้สูงสุด {_BULK_MAX} ลูกค้า (เลือก {len(customer_codes)})'}
+
+    sp = (salesperson_code or '').strip() or None
+    rid = region_id if region_id not in ('', None, 'null') else None
+    if rid is not None:
+        try:
+            rid = int(rid)
+        except (ValueError, TypeError):
+            return {'ok': False, 'updated': 0, 'error': 'region_id ไม่ถูกต้อง'}
+
+    # Block silent mass-NULL clearing: when a column is in scope it must have a
+    # non-empty target. (Future feature can add an explicit "clear" mode.)
+    if mode in ('salesperson', 'both') and sp is None:
+        return {'ok': False, 'updated': 0, 'error': 'กรุณาเลือก salesperson ปลายทาง'}
+    if mode in ('region', 'both') and rid is None:
+        return {'ok': False, 'updated': 0, 'error': 'กรุณาเลือก region ปลายทาง'}
+
+    conn = get_connection()
+    try:
+        if mode in ('salesperson', 'both'):
+            if not conn.execute(
+                "SELECT 1 FROM salespersons WHERE code = ? AND is_active = 1", (sp,)
+            ).fetchone():
+                return {'ok': False, 'updated': 0,
+                        'error': f'ไม่พบ salesperson code "{sp}" (หรือ inactive)'}
+        if mode in ('region', 'both'):
+            if not conn.execute("SELECT 1 FROM regions WHERE id = ?", (rid,)).fetchone():
+                return {'ok': False, 'updated': 0, 'error': f'ไม่พบ region id {rid}'}
+
+        placeholders = ','.join(['?'] * len(customer_codes))
+        if mode == 'salesperson':
+            sql = f"UPDATE customers SET salesperson = ? WHERE code IN ({placeholders})"
+            params = [sp, *customer_codes]
+        elif mode == 'region':
+            sql = f"UPDATE customers SET region_id = ? WHERE code IN ({placeholders})"
+            params = [rid, *customer_codes]
+        else:
+            sql = (f"UPDATE customers SET salesperson = ?, region_id = ? "
+                   f"WHERE code IN ({placeholders})")
+            params = [sp, rid, *customer_codes]
+
+        with conn:
+            cur = conn.execute(sql, params)
+        return {'ok': True, 'updated': cur.rowcount, 'error': None}
+    finally:
+        conn.close()
+
+
+def get_customers_master(search=None, salesperson=None, region_id=None,
+                         orphan_only=False, page=1, per_page=100):
+    conn = get_connection()
+    conds = []
+    params = []
+    if search:
+        conds.append("(c.code LIKE ? OR c.name LIKE ?)")
+        params += [f"%{search}%", f"%{search}%"]
+    if salesperson == '__none__':
+        conds.append("(c.salesperson IS NULL OR c.salesperson = '')")
+    elif salesperson:
+        conds.append("c.salesperson = ?")
+        params.append(salesperson)
+    if region_id:
+        conds.append("c.region_id = ?")
+        params.append(int(region_id))
+    if orphan_only:
+        conds.append(
+            "c.salesperson IS NOT NULL AND c.salesperson != '' "
+            "AND c.salesperson NOT IN (SELECT code FROM salespersons)"
+        )
+    where = ("WHERE " + " AND ".join(conds)) if conds else ""
+
+    sql = f"""
+        SELECT c.code, c.name, c.salesperson AS salesperson_code,
+               s.name AS salesperson_name, s.is_active AS salesperson_active,
+               c.region_id, r.code AS region_code, r.name_th AS region_name
+        FROM customers c
+        LEFT JOIN salespersons s ON s.code = c.salesperson
+        LEFT JOIN regions      r ON r.id   = c.region_id
+        {where}
+        ORDER BY c.name
+        LIMIT ? OFFSET ?
+    """
+    rows = conn.execute(sql, params + [per_page, (page - 1) * per_page]).fetchall()
+    total = conn.execute(
+        f"SELECT COUNT(*) FROM customers c {where}", params
+    ).fetchone()[0]
+    conn.close()
+    return [dict(r) for r in rows], total
+
+
 # ── Purchase Queries ──────────────────────────────────────────────────────────
 
 def get_purchases(product_id=None, date_from=None, date_to=None, page=1, per_page=50):

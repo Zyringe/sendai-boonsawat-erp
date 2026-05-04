@@ -48,14 +48,20 @@
       {% endif %}
       {% if data.region %}
       <div>
-        <div class="text-subtle small mb-1">เขตการขาย</div>
+        <div class="text-subtle small mb-1">เขตการขาย (snapshot)</div>
         <div><span class="badge badge-info">{{ data.region }}</span></div>
       </div>
       {% endif %}
       {% if data.salesperson %}
       <div>
-        <div class="text-subtle small mb-1">พนักงานขาย</div>
-        <div class="fw-500">{{ data.salesperson }}</div>
+        <div class="text-subtle small mb-1">พนักงานขาย (snapshot)</div>
+        <div class="fw-500">
+          {{ data.salesperson }}
+          {% set sp_code = data.salesperson.split('/')[-1] if '/' in data.salesperson else data.salesperson %}
+          {% if sp_code in orphan_codes %}
+            <span class="badge bg-warning text-dark ms-1" title="code นี้ไม่อยู่ใน salespersons master">⚠️ orphan</span>
+          {% endif %}
+        </div>
       </div>
       {% endif %}
       {% set ci = data.customer_info %}
@@ -100,6 +106,63 @@
     </div>
   </div>
 </div>
+
+{# ── Reassign salesperson + region (manager+ only) ──────────────────────── #}
+{% if is_manager and master %}
+<div class="card mb-4 border-primary">
+  <div class="card-header py-2 d-flex align-items-center">
+    <i class="bi bi-person-gear me-2"></i>
+    <span class="fw-600">เปลี่ยน salesperson / เขตการขาย</span>
+    <span class="badge bg-secondary ms-2">master record</span>
+  </div>
+  <div class="card-body py-3">
+    <div class="alert alert-info py-2 mb-3 small">
+      <i class="bi bi-info-circle me-1"></i>
+      ค่าด้านบน (snapshot) มาจากตอน BSN import — หน้านี้จะอัปเดตหลัง UI migration (D1) เสร็จ
+      ระหว่างนี้ การเปลี่ยนค่าด้านล่างจะบันทึกที่ <strong>master record</strong> (`customers` table)
+      และมี audit log อัตโนมัติ
+    </div>
+    <form method="post"
+          action="{{ url_for('customer_reassign', customer_code=master.code) }}"
+          class="row g-2 align-items-end">
+      <div class="col-md-4">
+        <label class="form-label small mb-1">Salesperson (master)</label>
+        <select name="salesperson" class="form-select form-select-sm">
+          <option value="">— ไม่กำหนด —</option>
+          {% for sp in salespersons %}
+            <option value="{{ sp.code }}"
+              {% if master.salesperson == sp.code %}selected{% endif %}>
+              {{ sp.code }} — {{ sp.name }}
+            </option>
+          {% endfor %}
+          {% if master.salesperson and master.salesperson in orphan_codes %}
+            <option value="{{ master.salesperson }}" selected>
+              {{ master.salesperson }} ⚠️ (orphan — ไม่อยู่ใน master)
+            </option>
+          {% endif %}
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small mb-1">Region (master)</label>
+        <select name="region_id" class="form-select form-select-sm">
+          <option value="">— ไม่กำหนด —</option>
+          {% for r in regions %}
+            <option value="{{ r.id }}"
+              {% if master.region_id == r.id %}selected{% endif %}>
+              {{ r.code }}{% if r.name_th %} — {{ r.name_th }}{% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-primary btn-sm">
+          <i class="bi bi-save me-1"></i>บันทึก
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
 
 {# ── Unpaid bills ────────────────────────────────────────────────────────── #}
 {% if unpaid_bills %}

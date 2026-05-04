@@ -63,6 +63,7 @@ _STAFF_POST_OK = frozenset([
 ])
 _MANAGER_POST_OK = _STAFF_POST_OK | frozenset([
     'import_payments', 'products.product_online_stock',
+    'customer_reassign', 'customer_bulk_reassign',
 ])
 # admin can POST anything
 
@@ -767,8 +768,87 @@ def customer_summary(customer_name):
     data = models.get_customer_summary(customer_name, date_from, date_to)
     unpaid_bills = models.get_customer_unpaid_bills(customer_name)
     unpaid_total = sum(b['total_net'] or 0 for b in unpaid_bills)
-    return render_template('customer_summary.html', data=data,
-                           unpaid_bills=unpaid_bills, unpaid_total=unpaid_total)
+
+    master = models.get_customer_master(data['customer_code']) if data.get('customer_code') else None
+    return render_template('customer_summary.html',
+                           data=data,
+                           unpaid_bills=unpaid_bills, unpaid_total=unpaid_total,
+                           master=master,
+                           salespersons=models.get_active_salespersons(),
+                           regions=models.get_all_regions(),
+                           orphan_codes=models.get_orphan_salesperson_codes())
+
+
+@app.route('/customer/<customer_code>/reassign', methods=['POST'])
+def customer_reassign(customer_code):
+    salesperson = request.form.get('salesperson', '').strip()
+    region_id   = request.form.get('region_id', '').strip()
+
+    result = models.update_customer_assignment(customer_code, salesperson, region_id)
+    if result['ok']:
+        flash('บันทึก salesperson / region เรียบร้อย (master record)', 'success')
+    else:
+        flash(f'ไม่สามารถบันทึก: {result["error"]}', 'danger')
+
+    # Use the canonical name from the master record so the post-redirect
+    # destination can never be steered by a hostile form value.
+    master = models.get_customer_master(customer_code)
+    if master:
+        return redirect(url_for('customer_summary', customer_name=master['name']))
+    return redirect(url_for('customer_list'))
+
+
+@app.route('/customers/bulk-reassign', methods=['GET', 'POST'])
+def customer_bulk_reassign():
+    if session.get('role') not in ('admin', 'manager'):
+        abort(403)
+
+    if request.method == 'POST':
+        codes       = request.form.getlist('customer_codes')
+        salesperson = request.form.get('salesperson', '').strip()
+        region_id   = request.form.get('region_id', '').strip()
+        mode        = request.form.get('mode', 'salesperson')
+
+        result = models.bulk_reassign_customers(codes, salesperson, region_id, mode=mode)
+        if result['ok']:
+            flash(f'อัปเดต {result["updated"]} ลูกค้าเรียบร้อย (master record)', 'success')
+        else:
+            flash(f'ไม่สามารถบันทึก: {result["error"]}', 'danger')
+        redirect_args = {
+            'q':                  request.form.get('q', '') or None,
+            'salesperson_filter': request.form.get('salesperson_filter', '') or None,
+            'region_filter':      request.form.get('region_filter', '') or None,
+            'orphan':             '1' if request.form.get('orphan_filter') == '1' else None,
+        }
+        return redirect(url_for('customer_bulk_reassign',
+                                **{k: v for k, v in redirect_args.items() if v}))
+
+    search        = request.args.get('q', '').strip()
+    salesperson_f = request.args.get('salesperson_filter', '').strip()
+    region_f      = request.args.get('region_filter', '').strip()
+    orphan_only   = request.args.get('orphan') == '1'
+    page          = request.args.get('page', 1, type=int) or 1
+    per_page      = 100
+
+    region_id_int = int(region_f) if region_f.isdigit() else None
+    customers, total = models.get_customers_master(
+        search=search or None,
+        salesperson=salesperson_f or None,
+        region_id=region_id_int,
+        orphan_only=orphan_only,
+        page=page, per_page=per_page,
+    )
+    pages = (total + per_page - 1) // per_page
+
+    return render_template(
+        'customers_bulk_reassign.html',
+        customers=customers, total=total, page=page, pages=pages,
+        search=search, salesperson_filter=salesperson_f,
+        region_filter=region_f, orphan_only=orphan_only,
+        salespersons=models.get_active_salespersons(),
+        regions=models.get_all_regions(),
+        orphan_codes=models.get_orphan_salesperson_codes(),
+    )
 
 
 @app.route('/suppliers')
