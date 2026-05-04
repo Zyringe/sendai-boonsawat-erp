@@ -43,8 +43,16 @@ def get_products(search=None, low_stock=False, hard_to_sell=False,
     having = ("HAVING " + " AND ".join(having_clauses)) if having_clauses else ""
 
     sql = f"""
-        SELECT p.*, COALESCE(s.quantity, 0) AS quantity,
-               CASE WHEN COALESCE(s.quantity, 0) <= p.low_stock_threshold THEN 1 ELSE 0 END AS is_low
+        SELECT p.id, p.sku, p.product_name, p.units_per_carton, p.units_per_box,
+               p.unit_type, p.hard_to_sell, p.cost_price, p.base_sell_price,
+               p.low_stock_threshold, p.is_active, p.brand_id, p.category_id,
+               p.created_at, p.updated_at,
+               COALESCE(s.quantity, 0) AS quantity,
+               CASE WHEN COALESCE(s.quantity, 0) <= p.low_stock_threshold THEN 1 ELSE 0 END AS is_low,
+               COALESCE((SELECT SUM(stock) FROM platform_skus
+                          WHERE platform='shopee' AND internal_product_id=p.id), 0) AS shopee_stock,
+               COALESCE((SELECT SUM(stock) FROM platform_skus
+                          WHERE platform='lazada' AND internal_product_id=p.id), 0) AS lazada_stock
         FROM products p
         LEFT JOIN stock_levels s ON s.product_id = p.id
         WHERE {where}
@@ -70,8 +78,16 @@ def get_products(search=None, low_stock=False, hard_to_sell=False,
 def get_product(product_id):
     conn = get_connection()
     row = conn.execute("""
-        SELECT p.*, COALESCE(s.quantity, 0) AS quantity,
-               CASE WHEN COALESCE(s.quantity, 0) <= p.low_stock_threshold THEN 1 ELSE 0 END AS is_low
+        SELECT p.id, p.sku, p.product_name, p.units_per_carton, p.units_per_box,
+               p.unit_type, p.hard_to_sell, p.cost_price, p.base_sell_price,
+               p.low_stock_threshold, p.is_active, p.brand_id, p.category_id,
+               p.created_at, p.updated_at,
+               COALESCE(s.quantity, 0) AS quantity,
+               CASE WHEN COALESCE(s.quantity, 0) <= p.low_stock_threshold THEN 1 ELSE 0 END AS is_low,
+               COALESCE((SELECT SUM(stock) FROM platform_skus
+                          WHERE platform='shopee' AND internal_product_id=p.id), 0) AS shopee_stock,
+               COALESCE((SELECT SUM(stock) FROM platform_skus
+                          WHERE platform='lazada' AND internal_product_id=p.id), 0) AS lazada_stock
         FROM products p
         LEFT JOIN stock_levels s ON s.product_id = p.id
         WHERE p.id = ?
