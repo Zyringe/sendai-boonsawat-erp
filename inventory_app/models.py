@@ -2507,9 +2507,65 @@ def import_platform_skus(platform, records):
             r.get('stock'),          r.get('raw_json'),
         ))
         count += 1
+    propagated = _propagate_listings_to_platform_skus(conn, platform)
     conn.commit()
     conn.close()
-    return count
+    return count, propagated
+
+
+def _propagate_listings_to_platform_skus(conn, platform):
+    """
+    After a fresh platform_skus snapshot, restore internal_product_id +
+    qty_per_sale on platform_skus by matching ecommerce_listings on
+    (platform, item_name, variation, seller_sku). Treat 'nan'/NULL/'' as
+    equivalent and fall back to stripping the Lazada 'attr:' prefix.
+    Returns count of platform_skus rows updated.
+    """
+    rows = conn.execute(
+        '''SELECT id, item_name, variation, seller_sku, product_id, qty_per_sale
+           FROM ecommerce_listings
+           WHERE platform = ? AND product_id IS NOT NULL''',
+        (platform,)
+    ).fetchall()
+
+    def _norm(v):
+        s = (v or '').strip()
+        return '' if s.lower() == 'nan' else s
+
+    def _strip_lazada(v):
+        if v and ':' in v:
+            head, _, tail = v.partition(':')
+            if head and tail and ':' not in head:
+                return tail.strip()
+        return v
+
+    update_sql = '''
+        UPDATE platform_skus
+           SET internal_product_id = ?, qty_per_sale = ?
+         WHERE platform = ?
+           AND product_name = ?
+           AND CASE WHEN LOWER(COALESCE(variation_name,'')) IN ('','nan')
+                    THEN '' ELSE variation_name END = ?
+           AND CASE WHEN LOWER(COALESCE(seller_sku,'')) IN ('','nan')
+                    THEN '' ELSE seller_sku END = ?
+    '''
+    total = 0
+    for r in rows:
+        var = _norm(r['variation'])
+        ssk = _norm(r['seller_sku'])
+        cur = conn.execute(update_sql, (
+            r['product_id'], r['qty_per_sale'], platform,
+            r['item_name'], var, ssk
+        ))
+        if cur.rowcount == 0:
+            var2 = _strip_lazada(var)
+            if var2 != var:
+                cur = conn.execute(update_sql, (
+                    r['product_id'], r['qty_per_sale'], platform,
+                    r['item_name'], var2, ssk
+                ))
+        total += cur.rowcount
+    return total
 
 
 def get_platform_skus(platform, search=None, page=1, per_page=50):
