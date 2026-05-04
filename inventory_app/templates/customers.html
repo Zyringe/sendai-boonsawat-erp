@@ -15,16 +15,18 @@
       </div>
       <div class="col-md-3">
         <label class="form-label small mb-1">เขตการขาย</label>
-        <select name="region" class="form-select form-select-sm">
+        <select name="region_id" class="form-select form-select-sm">
           <option value="">— ทุกเขต —</option>
           {% for r in regions %}
-          <option value="{{ r }}" {% if r == region %}selected{% endif %}>{{ r }}</option>
+          <option value="{{ r.id }}" {% if region_id == r.id|string %}selected{% endif %}>
+            {{ r.code }}{% if r.name_th %} — {{ r.name_th }}{% endif %}
+          </option>
           {% endfor %}
         </select>
       </div>
       <div class="col-auto">
         <button type="submit" class="btn btn-primary btn-sm">ค้นหา</button>
-        {% if search or region %}
+        {% if search or region_id or region %}
         <a href="{{ url_for('customer_list') }}" class="btn btn-sm btn-outline-secondary ms-1">ล้าง</a>
         {% endif %}
       </div>
@@ -37,6 +39,12 @@
            class="btn btn-sm btn-outline-primary">
           <i class="bi bi-people-fill me-1"></i>Bulk reassign
         </a>
+        {% if is_admin %}
+        <a href="{{ url_for('regions_admin') }}"
+           class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-geo-alt me-1"></i>เขตการขาย
+        </a>
+        {% endif %}
       </div>
       {% endif %}
     </form>
@@ -74,7 +82,16 @@
             <span class="text-subtle">—</span>
             {% endif %}
           </td>
-          <td data-label="พนักงานขาย" class="small text-subtle">{{ c.salesperson or '—' }}</td>
+          <td data-label="พนักงานขาย" class="small text-subtle">
+            {% if c.salesperson %}
+              {{ c.salesperson }}
+              {% if c.salesperson_orphan %}
+                <span class="badge bg-warning text-dark ms-1" title="orphan">⚠️</span>
+              {% endif %}
+            {% else %}
+              —
+            {% endif %}
+          </td>
           <td data-label="เอกสาร" class="text-center text-subtle small">{{ c.doc_count }}</td>
           <td data-label="ยอดรวม (฿)" class="text-end fw-600 font-mono text-success">
             {{ '{:,.0f}'.format(c.total_net) }}
@@ -97,17 +114,17 @@
     <nav>
       <ul class="pagination pagination-sm mb-0">
         <li class="page-item {% if page <= 1 %}disabled{% endif %}">
-          <a class="page-link" href="{{ url_for('customer_list', q=search, region=region, page=page-1) }}">‹</a>
+          <a class="page-link" href="{{ url_for('customer_list', q=search, region_id=region_id, page=page-1) }}">‹</a>
         </li>
         <li class="page-item {% if page == 1 %}active{% endif %}">
-          <a class="page-link" href="{{ url_for('customer_list', q=search, region=region, page=1) }}">1</a>
+          <a class="page-link" href="{{ url_for('customer_list', q=search, region_id=region_id, page=1) }}">1</a>
         </li>
         {% if p_start > 2 %}
         <li class="page-item disabled"><span class="page-link">…</span></li>
         {% endif %}
         {% for p in range(p_start, p_end+1) %}
         <li class="page-item {% if p == page %}active{% endif %}">
-          <a class="page-link" href="{{ url_for('customer_list', q=search, region=region, page=p) }}">{{ p }}</a>
+          <a class="page-link" href="{{ url_for('customer_list', q=search, region_id=region_id, page=p) }}">{{ p }}</a>
         </li>
         {% endfor %}
         {% if p_end < pages-1 %}
@@ -115,11 +132,11 @@
         {% endif %}
         {% if pages > 1 %}
         <li class="page-item {% if page == pages %}active{% endif %}">
-          <a class="page-link" href="{{ url_for('customer_list', q=search, region=region, page=pages) }}">{{ pages }}</a>
+          <a class="page-link" href="{{ url_for('customer_list', q=search, region_id=region_id, page=pages) }}">{{ pages }}</a>
         </li>
         {% endif %}
         <li class="page-item {% if page >= pages %}disabled{% endif %}">
-          <a class="page-link" href="{{ url_for('customer_list', q=search, region=region, page=page+1) }}">›</a>
+          <a class="page-link" href="{{ url_for('customer_list', q=search, region_id=region_id, page=page+1) }}">›</a>
         </li>
       </ul>
     </nav>

@@ -54,10 +54,11 @@
     <div class="text-subtle small mb-1">เลือกเขต:</div>
     <div>
       <a href="{{ url_for('mobile.sales_trip') }}"
-         class="region-chip {% if not region_filter %}active{% endif %}">ทั้งหมด</a>
+         class="region-chip {% if not region_id %}active{% endif %}">ทั้งหมด</a>
       {% for r in all_regions %}
-      <a href="{{ url_for('mobile.sales_trip', region=r) }}"
-         class="region-chip {% if region_filter == r %}active{% endif %}">{{ r }}</a>
+      <a href="{{ url_for('mobile.sales_trip', region_id=r.id) }}"
+         class="region-chip {% if region_id == r.id %}active{% endif %}"
+         title="{{ r.name_th or '' }}">{{ r.code }}</a>
       {% endfor %}
     </div>
   </div>
@@ -70,9 +71,9 @@
 </div>
 {% endif %}
 
-{% for region, customers in grouped.items() %}
+{% for region_key, customers in grouped.items() %}
 <div class="region-section">
-  <i class="bi bi-pin-map me-1"></i>{{ region }}
+  <i class="bi bi-pin-map me-1"></i>{{ customers[0].region or '— ไม่ระบุเขต —' }}
   <span class="text-subtle ms-2">({{ customers|length }} ราย)</span>
 </div>
 {% for c in customers %}

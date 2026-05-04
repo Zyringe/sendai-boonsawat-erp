@@ -65,6 +65,8 @@ _MANAGER_POST_OK = _STAFF_POST_OK | frozenset([
     'import_payments', 'products.product_online_stock',
     'customer_reassign', 'customer_bulk_reassign',
 ])
+# regions_admin POST is intentionally admin-only — gated inline at the top of
+# the route. Other admin-only writes use _require_admin().
 # admin can POST anything
 
 
@@ -744,21 +746,38 @@ def trade_dashboard():
 
 @app.route('/customers')
 def customer_list():
-    search  = request.args.get('q', '').strip()
-    region  = request.args.get('region', '').strip()
-    page    = int(request.args.get('page', 1))
-    per_page = app.config['ITEMS_PER_PAGE']
+    search    = request.args.get('q', '').strip()
+    region_id = request.args.get('region_id', '').strip()
+    region    = request.args.get('region', '').strip()  # legacy bookmarks
+    page      = request.args.get('page', 1, type=int) or 1
+    per_page  = app.config['ITEMS_PER_PAGE']
+
+    # Legacy ?region=<text>: warn the user when it doesn't resolve so we don't
+    # silently show all customers and look like the filter is broken.
+    if region and not region_id:
+        from database import get_connection as _gc
+        _conn = _gc()
+        match = _conn.execute(
+            "SELECT id FROM regions WHERE code = ? OR name_th = ? LIMIT 1",
+            (region, region),
+        ).fetchone()
+        _conn.close()
+        if not match:
+            flash(f'ไม่พบเขต "{region}" — แสดงลูกค้าทั้งหมดแทน', 'warning')
+
     customers, total = models.get_customers(
         search=search or None,
         region=region or None,
-        page=page, per_page=per_page
+        region_id=region_id or None,
+        page=page, per_page=per_page,
     )
     pages   = (total + per_page - 1) // per_page
     regions = models.get_regions()
     return render_template('customers.html',
                            customers=customers, total=total,
                            page=page, pages=pages,
-                           search=search, region=region, regions=regions)
+                           search=search, region=region, region_id=region_id,
+                           regions=regions)
 
 
 @app.route('/customer/<path:customer_name>')
@@ -2009,6 +2028,33 @@ def commission_export():
     return send_file(io.BytesIO(out), mimetype='text/csv',
                      as_attachment=True,
                      download_name=f'commission_{year_month}.csv')
+
+
+# ── Regions admin (fill in name_th + sort_order) ─────────────────────────────
+
+@app.route('/regions', methods=['GET', 'POST'])
+def regions_admin():
+    if session.get('role') != 'admin':
+        abort(403)
+
+    if request.method == 'POST':
+        try:
+            region_id = int(request.form.get('region_id', '0'))
+        except ValueError:
+            abort(400)
+        result = models.update_region(
+            region_id,
+            request.form.get('name_th', ''),
+            request.form.get('sort_order', ''),
+            request.form.get('note', ''),
+        )
+        if result['ok']:
+            flash(f'อัปเดต region #{region_id} เรียบร้อย', 'success')
+        else:
+            flash(f'ไม่สามารถบันทึก: {result["error"]}', 'danger')
+        return redirect(url_for('regions_admin'))
+
+    return render_template('regions.html', regions=models.get_all_regions_with_counts())
 
 
 # ── Commission Overrides (admin-only CRUD) ───────────────────────────────────

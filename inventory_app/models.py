@@ -1367,30 +1367,58 @@ def get_customer_summary(customer, date_from=None, date_to=None):
         LIMIT 200
     """, params).fetchall()
 
-    # Region info
-    region_row = conn.execute("""
-        SELECT cr.region, cr.salesperson, s.customer_code
+    # Pull region + salesperson from customers MASTER (post-D1 view migration).
+    # 3-way fallback: salespersons.name → customers.salesperson code → '(ไม่กำหนด)'.
+    # Same for region: regions.name_th → regions.code → '(ไม่ระบุ)'.
+    master_row = conn.execute("""
+        SELECT s.customer_code,
+               c.code AS master_code, c.name AS master_name,
+               c.salesperson AS sp_code, c.region_id,
+               sp.name AS sp_name, sp.is_active AS sp_active,
+               r.code AS region_code, r.name_th AS region_name
         FROM sales_transactions s
-        LEFT JOIN customer_regions cr ON cr.customer_code = s.customer_code
+        LEFT JOIN customers     c  ON c.code  = s.customer_code
+        LEFT JOIN salespersons  sp ON sp.code = c.salesperson
+        LEFT JOIN regions       r  ON r.id    = c.region_id
         WHERE s.customer = ?
         LIMIT 1
     """, [customer]).fetchone()
 
-    # Customer master info from BSN import
     customer_info = None
-    if region_row and region_row['customer_code']:
-        row = conn.execute(
-            "SELECT * FROM customers WHERE code=?", [region_row['customer_code']]
-        ).fetchone()
-        if row:
-            customer_info = dict(row)
+    customer_code = None
+    salesperson_code = None
+    salesperson_display = None
+    salesperson_orphan = False
+    region_code = None
+    region_display = None
+
+    if master_row:
+        customer_code = master_row['customer_code']
+        if master_row['master_code']:
+            row = conn.execute(
+                "SELECT * FROM customers WHERE code=?", [master_row['master_code']]
+            ).fetchone()
+            if row:
+                customer_info = dict(row)
+            salesperson_code = master_row['sp_code']
+            if salesperson_code:
+                if master_row['sp_name']:
+                    salesperson_display = master_row['sp_name']
+                else:
+                    salesperson_display = salesperson_code
+                    salesperson_orphan = True
+            region_code = master_row['region_code']
+            region_display = master_row['region_name'] or master_row['region_code']
 
     conn.close()
     return {
         'customer': customer,
-        'customer_code': region_row['customer_code'] if region_row else None,
-        'region': region_row['region'] if region_row else None,
-        'salesperson': region_row['salesperson'] if region_row else None,
+        'customer_code': customer_code,
+        'region': region_display,
+        'region_code': region_code,
+        'salesperson': salesperson_display,
+        'salesperson_code': salesperson_code,
+        'salesperson_orphan': salesperson_orphan,
         'customer_info': customer_info,
         'date_from': date_from,
         'date_to': date_to,
@@ -1404,34 +1432,70 @@ def get_customer_summary(customer, date_from=None, date_to=None):
 # ── Customer List ─────────────────────────────────────────────────────────────
 
 def get_regions():
+    """Region list for filter dropdowns. Returns [{id, code, name_th}].
+    Driven by the regions master (migration 010), not the legacy
+    customer_regions snapshot."""
     conn = get_connection()
     rows = conn.execute(
-        "SELECT DISTINCT region FROM customer_regions WHERE region IS NOT NULL ORDER BY region"
+        "SELECT id, code, name_th FROM regions ORDER BY sort_order, code"
     ).fetchall()
     conn.close()
-    return [r['region'] for r in rows]
+    return [dict(r) for r in rows]
 
 
-def get_customers(search=None, region=None, page=1, per_page=50):
+def get_customers(search=None, region=None, region_id=None, page=1, per_page=50):
+    """Customer list backed by customers master + salespersons + regions.
+
+    Filter precedence: region_id (FK, new) > region (text, legacy URL).
+    Returns customer rows with display fields:
+        salesperson  → name from salespersons master, or raw code if orphan
+        region       → name_th from regions, or code as fallback
+    """
     conn = get_connection()
     conds = []
     params = []
     if search:
         conds.append("(s.customer LIKE ? OR s.customer_code LIKE ?)")
         params += [f"%{search}%", f"%{search}%"]
-    if region:
-        conds.append("cr.region = ?")
-        params.append(region)
+
+    rid_int = None
+    if region_id is not None and str(region_id).strip():
+        try:
+            rid_int = int(region_id)
+        except (ValueError, TypeError):
+            rid_int = None
+    elif region:
+        # Legacy URL: ?region=<code or name_th>. Resolve to id.
+        match = conn.execute(
+            "SELECT id FROM regions WHERE code = ? OR name_th = ? LIMIT 1",
+            (region, region),
+        ).fetchone()
+        if match:
+            rid_int = match['id']
+    if rid_int is not None:
+        conds.append("c.region_id = ?")
+        params.append(rid_int)
+
     where = ("WHERE " + " AND ".join(conds)) if conds else ""
 
     sql = f"""
         SELECT s.customer, s.customer_code,
-               cr.region, cr.salesperson,
-               COUNT(DISTINCT s.doc_no) AS doc_count,
-               COALESCE(SUM(s.net), 0)  AS total_net,
-               MAX(s.date_iso)          AS last_date
+               COALESCE(r.name_th, r.code)              AS region,
+               r.code                                   AS region_code,
+               c.region_id,
+               COALESCE(sp.name, c.salesperson)         AS salesperson,
+               c.salesperson                            AS salesperson_code,
+               (c.salesperson IS NOT NULL
+                  AND c.salesperson != ''
+                  AND sp.code IS NULL)                  AS salesperson_orphan,
+               COUNT(DISTINCT s.doc_no)                 AS doc_count,
+               COALESCE(SUM(s.net), 0)                  AS total_net,
+               MAX(s.date_iso)                          AS last_date,
+               (c.code IS NULL)                         AS missing_master
         FROM sales_transactions s
-        LEFT JOIN customer_regions cr ON cr.customer_code = s.customer_code
+        LEFT JOIN customers     c  ON c.code  = s.customer_code
+        LEFT JOIN salespersons  sp ON sp.code = c.salesperson
+        LEFT JOIN regions       r  ON r.id    = c.region_id
         {where}
         GROUP BY s.customer_code
         ORDER BY s.customer
@@ -1442,7 +1506,7 @@ def get_customers(search=None, region=None, page=1, per_page=50):
     count_sql = f"""
         SELECT COUNT(DISTINCT s.customer_code)
         FROM sales_transactions s
-        LEFT JOIN customer_regions cr ON cr.customer_code = s.customer_code
+        LEFT JOIN customers c ON c.code = s.customer_code
         {where}
     """
     total = conn.execute(count_sql, params).fetchone()[0]
@@ -1456,6 +1520,42 @@ def get_customers(search=None, region=None, page=1, per_page=50):
 # (read by get_customer_summary / get_customers above) until UI migration D1
 # lands. The helpers below write to the MASTER table only — audit triggers on
 # customers cover the change automatically.
+
+def get_all_regions_with_counts():
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT r.id, r.code, r.name_th, r.sort_order, r.note,
+               COUNT(c.code) AS customer_count
+          FROM regions r
+          LEFT JOIN customers c ON c.region_id = r.id
+         GROUP BY r.id
+         ORDER BY r.sort_order, r.code
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def update_region(region_id, name_th, sort_order, note):
+    name_th = (name_th or '').strip() or None
+    note    = (note or '').strip() or None
+    try:
+        sort_order = int(sort_order) if str(sort_order).strip() else 100
+    except (ValueError, TypeError):
+        return {'ok': False, 'error': 'sort_order ต้องเป็นจำนวนเต็ม'}
+
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "UPDATE regions SET name_th = ?, sort_order = ?, note = ? WHERE id = ?",
+            (name_th, sort_order, note, region_id),
+        )
+        if cur.rowcount == 0:
+            return {'ok': False, 'error': f'ไม่พบ region id {region_id}'}
+        conn.commit()
+        return {'ok': True, 'error': None}
+    finally:
+        conn.close()
+
 
 def get_active_salespersons():
     conn = get_connection()

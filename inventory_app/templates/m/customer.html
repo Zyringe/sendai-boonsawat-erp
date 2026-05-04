@@ -30,7 +30,7 @@
         <span class="badge bg-info-subtle text-info-emphasis">{{ customer.zone }}</span>
       {% endif %}
       {% if region and region.salesperson %}
-        <span class="badge bg-light text-muted">พนักงาน: {{ region.salesperson }}</span>
+        <span class="badge bg-light text-muted">พนักงาน: {{ region.salesperson }}{% if region.salesperson_orphan %} ⚠️{% endif %}</span>
       {% elif customer and customer.salesperson %}
         <span class="badge bg-light text-muted">พนักงาน: {{ customer.salesperson }}</span>
       {% endif %}

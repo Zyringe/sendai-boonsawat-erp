@@ -85,11 +85,26 @@ def customer_detail(customer_name):
         "SELECT * FROM customers WHERE name = ? LIMIT 1", (customer_name,)
     ).fetchone()
 
-    # Region / salesperson (separate table for editable region label)
+    # Region / salesperson from customers MASTER + lookup tables (post-D1).
+    # Returns a dict-shaped row with display fields:
+    #   region        → regions.name_th, fall back to regions.code, then NULL
+    #   salesperson   → salespersons.name, fall back to raw code, then NULL
     region_row = None
     if customer:
         region_row = conn.execute(
-            "SELECT region, salesperson FROM customer_regions WHERE customer_code = ?",
+            """
+            SELECT COALESCE(r.name_th, r.code)        AS region,
+                   COALESCE(sp.name, c.salesperson)   AS salesperson,
+                   c.salesperson                      AS salesperson_code,
+                   (c.salesperson IS NOT NULL
+                      AND c.salesperson != ''
+                      AND sp.code IS NULL)            AS salesperson_orphan,
+                   r.code                             AS region_code
+              FROM customers c
+              LEFT JOIN salespersons sp ON sp.code = c.salesperson
+              LEFT JOIN regions      r  ON r.id    = c.region_id
+             WHERE c.code = ?
+            """,
             (customer['code'],),
         ).fetchone()
 
@@ -143,21 +158,38 @@ def customer_detail(customer_name):
 @bp_mobile.route('/sales-trip')
 def sales_trip():
     """Customers grouped by region → quick view for sales-rep field trip planning."""
-    region_filter = (request.args.get('region') or '').strip() or None
+    # Filter by regions.id (new) — fall back to legacy ?region=<code|name_th> for old bookmarks.
+    region_id_raw = (request.args.get('region_id') or '').strip()
+    region_legacy = (request.args.get('region') or '').strip()
+    region_id = int(region_id_raw) if region_id_raw.isdigit() else None
 
     conn = get_connection()
-    # All known regions (for filter chips)
-    all_regions = [r['region'] for r in conn.execute(
-        "SELECT DISTINCT region FROM customer_regions WHERE region IS NOT NULL ORDER BY region"
+    if region_id is None and region_legacy:
+        match = conn.execute(
+            "SELECT id FROM regions WHERE code = ? OR name_th = ? LIMIT 1",
+            (region_legacy, region_legacy),
+        ).fetchone()
+        if match:
+            region_id = match['id']
+
+    # All regions for filter chips, sorted by sort_order then code (master)
+    all_regions = [dict(r) for r in conn.execute(
+        "SELECT id, code, name_th FROM regions ORDER BY sort_order, code"
     ).fetchall()]
 
-    # Customers + outstanding total + last sale, optionally filtered by region
-    # Outstanding = sum(net) of sales rows whose doc_base has no paid_invoice match.
-    # (paid_invoices.iv_no joins to sales_transactions.doc_base; SR/HS docs are
-    # credit notes and historic which we exclude — same rule as models.get_customer_unpaid_bills.)
+    # Customers + outstanding total + last sale, optionally filtered by region.
+    # Read from customers MASTER + salespersons + regions JOINs (post-D1);
+    # customer_regions is no longer touched.
     sql = """
         SELECT c.code, c.name, c.zone, c.phone, c.address,
-               cr.region, cr.salesperson,
+               COALESCE(r.name_th, r.code)      AS region,
+               r.code                           AS region_code,
+               c.region_id,
+               COALESCE(sp.name, c.salesperson) AS salesperson,
+               c.salesperson                    AS salesperson_code,
+               (c.salesperson IS NOT NULL
+                  AND c.salesperson != ''
+                  AND sp.code IS NULL)          AS salesperson_orphan,
                (SELECT MAX(date_iso) FROM sales_transactions s WHERE s.customer = c.name) AS last_sale,
                (SELECT ROUND(SUM(CASE WHEN s.vat_type = 2 THEN s.net * 1.07 ELSE s.net END), 2)
                   FROM sales_transactions s
@@ -169,24 +201,27 @@ def sales_trip():
                     AND pi.iv_no IS NULL
                ) AS outstanding
           FROM customers c
-     LEFT JOIN customer_regions cr ON cr.customer_code = c.code
+     LEFT JOIN salespersons sp ON sp.code = c.salesperson
+     LEFT JOIN regions      r  ON r.id    = c.region_id
     """
     params = []
-    if region_filter:
-        sql += " WHERE cr.region = ? "
-        params.append(region_filter)
+    if region_id is not None:
+        sql += " WHERE c.region_id = ? "
+        params.append(region_id)
     sql += """
-         ORDER BY COALESCE(cr.region, 'zzz'), c.name
+         ORDER BY COALESCE(r.name_th, r.code, 'zzz'), c.name
          LIMIT 300
     """
     rows = conn.execute(sql, params).fetchall()
     conn.close()
 
-    # Group by region in Python (cheaper than fancy SQL here)
+    # Group by region. Key is the FK id so two regions with an identical
+    # name_th can't merge accidentally; the section header pulls the display
+    # name from the customer row.
     grouped = {}
     total_outstanding = 0.0
     for r in rows:
-        key = r['region'] or '— ไม่ระบุเขต —'
+        key = r['region_id'] if r['region_id'] is not None else '__none__'
         grouped.setdefault(key, []).append(r)
         if r['outstanding']:
             total_outstanding += r['outstanding']
@@ -194,5 +229,5 @@ def sales_trip():
     return render_template('m/sales_trip.html',
                            grouped=grouped,
                            all_regions=all_regions,
-                           region_filter=region_filter,
+                           region_id=region_id,
                            total_outstanding=total_outstanding)
