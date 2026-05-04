@@ -65,6 +65,16 @@ CREATE TABLE salespersons (
 -- seed 12 rows by parsing customer_regions.salesperson "ชื่อ /รหัส" format.
 -- code = SUBSTR(s, INSTR(s,'/')+1)  → keeps full code including suffix (e.g. '06-L').
 -- name = full original string.
+--
+-- customer_regions is a legacy manually-managed table that only exists in
+-- the original local DB — fresh deploys (Railway, CI, new dev clones) won't
+-- have it, and the SELECT below would abort the migration. Create an empty
+-- stand-in if missing so the seed yields 0 rows on those environments;
+-- real installs keep their populated table untouched.
+CREATE TABLE IF NOT EXISTS customer_regions (
+    salesperson TEXT
+);
+
 INSERT INTO salespersons (code, name)
 SELECT DISTINCT
     SUBSTR(salesperson, INSTR(salesperson, '/') + 1) AS code,
