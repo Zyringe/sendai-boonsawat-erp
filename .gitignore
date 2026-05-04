@@ -15,3 +15,9 @@ data/logs/
 .DS_Store
 **/.DS_Store
 Thumbs.db
+
+# Claude Code (local / personal — ไม่แชร์ทีม)
+.claude/settings.local.json
+.claude.local.json
+.claude/.session/
+.claude/cache/

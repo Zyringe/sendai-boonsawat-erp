@@ -7,7 +7,7 @@
 ## Dev Server
 ```
 runtimeExecutable: /Users/putty/.virtualenvs/erp/bin/python
-runtimeArgs: ["/Users/putty/Documents/Sendai-Boonsawat/ERP/inventory_app/app.py"]
+runtimeArgs: ["/Users/putty/Documents/Sendai-Boonsawat/sendy_erp/inventory_app/app.py"]
 port: 5001
 ```
 
@@ -31,7 +31,7 @@ venv ต้องอยู่นอก `~/Documents` (เช่น `~/.virtualen
 
 ## โครงสร้างไฟล์สำคัญ
 ```
-ERP/
+sendy_erp/
   CLAUDE.md
   .claude/
     launch.json          — dev server config
