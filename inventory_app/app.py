@@ -42,7 +42,20 @@ app.register_blueprint(bp_supplier_catalogue)
 app.register_blueprint(bp_mobile)
 
 with app.app_context():
-    init_db()
+    # SKIP_DB_INIT=1 lets the app boot without touching the database. Used
+    # one-shot during the Railway DB upload bootstrap (volume is empty, so
+    # init_db() would crash on the migration runner). Unset after the volume
+    # has been seeded with the real DB.
+    if os.environ.get('SKIP_DB_INIT', '').lower() not in ('1', 'true', 'yes'):
+        init_db()
+
+
+# Liveness probe that does not touch the database. Used as the Railway
+# healthcheck path during the SKIP_DB_INIT bootstrap window; safe to leave
+# in place afterwards.
+@app.route('/healthz')
+def healthz():
+    return 'ok', 200
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -89,8 +102,8 @@ def inject_auth():
 @app.before_request
 def require_login():
     endpoint = request.endpoint
-    # Allow static files and login page without authentication
-    if endpoint in ('login', 'static'):
+    # Allow static files, login page, and healthcheck without authentication
+    if endpoint in ('login', 'static', 'healthz'):
         return
     role = session.get('role', '')
     if not role:
