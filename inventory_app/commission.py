@@ -28,16 +28,11 @@ Real-time: NO snapshot table — query runs on demand.
 """
 from __future__ import annotations
 
-import os
 import re
 import sqlite3
 from collections import defaultdict
 
-
-_DB_PATH = os.environ.get(
-    'SENDY_DB_PATH',
-    '/Users/putty/Documents/Sendai-Boonsawat/sendy_erp/inventory_app/instance/inventory.db',
-)
+from config import DATABASE_PATH
 
 
 def _fmt_rate_pct(rate):
@@ -69,7 +64,7 @@ def classify_brand_kind(product_name):
 
 # ── DB helpers ──────────────────────────────────────────────────────────────
 def _connect(db_path=None):
-    conn = sqlite3.connect(db_path or _DB_PATH)
+    conn = sqlite3.connect(db_path or DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA foreign_keys = OFF')
     return conn
