@@ -58,6 +58,42 @@ def healthz():
     return 'ok', 200
 
 
+# Bootstrap-only DB upload. Separate from the admin /admin/upload-db route
+# (which needs an admin session + populated DB to work). This one is active
+# only when BOOTSTRAP_TOKEN env var is set, gated by token instead of session,
+# and never renders a template — so it works on a fresh empty volume. Unset
+# BOOTSTRAP_TOKEN after the seed to disable the endpoint.
+@app.route('/bootstrap/upload-db', methods=['GET', 'POST'])
+def bootstrap_upload_db():
+    expected = os.environ.get('BOOTSTRAP_TOKEN', '')
+    if not expected:
+        abort(404)
+    if request.method == 'POST':
+        if request.form.get('token', '') != expected:
+            return 'bad token', 403
+        f = request.files.get('db')
+        if not f:
+            return 'missing file field "db"', 400
+        target = config.DATABASE_PATH
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        # Stream to a temp file then atomic-rename so a partial upload doesn't
+        # leave the volume with a half-written DB.
+        tmp = target + '.upload-tmp'
+        f.save(tmp)
+        size = os.path.getsize(tmp)
+        os.replace(tmp, target)
+        return f'ok — wrote {size:,} bytes to {target}\n', 200
+    return (
+        '<!doctype html><meta charset=utf-8>'
+        '<title>Sendy bootstrap upload</title>'
+        '<form method=post enctype=multipart/form-data>'
+        '<p><label>Token: <input type=password name=token required></label></p>'
+        '<p><label>DB file: <input type=file name=db accept=".db" required></label></p>'
+        '<p><button type=submit>Upload</button></p>'
+        '</form>'
+    )
+
+
 # ── Auth ──────────────────────────────────────────────────────────────────────
 #
 # Roles: admin > manager > staff
@@ -102,8 +138,9 @@ def inject_auth():
 @app.before_request
 def require_login():
     endpoint = request.endpoint
-    # Allow static files, login page, and healthcheck without authentication
-    if endpoint in ('login', 'static', 'healthz'):
+    # Allow static files, login page, healthcheck, and the bootstrap DB
+    # upload (which is itself token-gated) without authentication.
+    if endpoint in ('login', 'static', 'healthz', 'bootstrap_upload_db'):
         return
     role = session.get('role', '')
     if not role:
