@@ -14,6 +14,11 @@
       </select>
     </form>
     <div class="ms-auto d-flex gap-2">
+      {% if is_admin %}
+      <a href="{{ url_for('commission_overrides_list') }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-sliders"></i> จัดการ rule
+      </a>
+      {% endif %}
       <a href="{{ url_for('commission_payouts_list', month=year_month) }}" class="btn btn-sm btn-outline-secondary">
         <i class="bi bi-clock-history"></i> ประวัติการจ่าย
       </a>

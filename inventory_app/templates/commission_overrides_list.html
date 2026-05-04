@@ -1,0 +1,128 @@
+{% extends 'base.html' %}
+{% block title %}Commission Overrides – ERP{% endblock %}
+{% block page_title %}จัดการ rule commission ({{ rules|length }}){% endblock %}
+
+{% block content %}
+
+<div class="alert alert-secondary py-2 mb-3 small">
+  <i class="bi bi-info-circle me-1"></i>
+  Rule ที่นี่ <strong>เบียดบังอัตราของ tier</strong> เมื่อเงื่อนไขตรง.
+  ลำดับความสำคัญ: <code>product</code> &gt; <code>brand</code>;
+  rule ที่ระบุ salesperson ได้สิทธิ์มากกว่า rule แบบทุกคน.
+  ทุกการเปลี่ยนถูกบันทึกใน <code>audit_log</code>.
+</div>
+
+<div class="card mb-3">
+  <div class="card-body py-2 d-flex align-items-center">
+    <a href="{{ url_for('commission_dashboard') }}"
+       class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-arrow-left me-1"></i>กลับ commission
+    </a>
+    <a href="{{ url_for('commission_overrides_new') }}"
+       class="btn btn-sm btn-primary ms-auto">
+      <i class="bi bi-plus-lg me-1"></i>เพิ่ม rule
+    </a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0 align-middle">
+      <thead>
+        <tr>
+          <th style="width:48px">#</th>
+          <th>Scope</th>
+          <th>Target</th>
+          <th>Salesperson</th>
+          <th>อัตรา</th>
+          <th>Price gate</th>
+          <th>Effective</th>
+          <th>Note</th>
+          <th class="text-center">Active</th>
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rules %}
+        <tr {% if not r.is_active %}class="text-subtle"{% endif %}>
+          <td class="font-mono small">{{ r.id }}</td>
+          <td>
+            {% if r.product_id %}
+              <span class="badge bg-info">product</span>
+            {% else %}
+              <span class="badge bg-warning text-dark">brand</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.product_id %}
+              <span class="font-mono small text-subtle">#{{ r.sku }}</span>
+              {{ r.product_name or '(ไม่พบสินค้า)' }}
+            {% else %}
+              {{ r.brand_name or '(ไม่พบแบรนด์)' }}
+              {% if r.is_own_brand %}
+                <span class="badge bg-success ms-1">own</span>
+              {% endif %}
+            {% endif %}
+          </td>
+          <td>
+            {% if r.salesperson_code %}
+              {{ r.salesperson_name or r.salesperson_code }}
+            {% else %}
+              <span class="text-subtle small">ทุกคน</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.fixed_per_unit is not none %}
+              <strong>฿{{ '%.2f'|format(r.fixed_per_unit) }}</strong> / หน่วย
+            {% elif r.custom_rate_pct is not none %}
+              <strong>{{ '%.2f'|format(r.custom_rate_pct) }}%</strong> ของ net
+            {% endif %}
+          </td>
+          <td class="small">
+            {% if r.apply_when_price_gt or r.apply_when_price_lte %}
+              {% if r.apply_when_price_gt %}&gt;฿{{ '%.0f'|format(r.apply_when_price_gt) }}{% endif %}
+              {% if r.apply_when_price_gt and r.apply_when_price_lte %}, {% endif %}
+              {% if r.apply_when_price_lte %}≤฿{{ '%.0f'|format(r.apply_when_price_lte) }}{% endif %}
+            {% else %}
+              <span class="text-subtle">—</span>
+            {% endif %}
+          </td>
+          <td class="font-mono small">{{ r.effective_from }}</td>
+          <td class="small" style="max-width:280px">{{ r.note or '' }}</td>
+          <td class="text-center">
+            {% if r.is_active %}
+              <span class="badge bg-success">on</span>
+            {% else %}
+              <span class="badge bg-secondary">off</span>
+            {% endif %}
+          </td>
+          <td class="text-end text-nowrap">
+            <a href="{{ url_for('commission_overrides_edit', override_id=r.id) }}"
+               class="btn btn-sm btn-outline-primary">
+              <i class="bi bi-pencil"></i>
+            </a>
+            <form method="post" action="{{ url_for('commission_overrides_toggle', override_id=r.id) }}"
+                  class="d-inline">
+              <button type="submit" class="btn btn-sm btn-outline-secondary"
+                      title="{{ 'ปิดใช้' if r.is_active else 'เปิดใช้' }}">
+                <i class="bi bi-{{ 'toggle-on' if r.is_active else 'toggle-off' }}"></i>
+              </button>
+            </form>
+            <form method="post" action="{{ url_for('commission_overrides_delete', override_id=r.id) }}"
+                  class="d-inline"
+                  onsubmit="return confirm('ลบ rule #{{ r.id }} ถาวร?\\n(audit_log จะเก็บประวัติไว้)');">
+              <button type="submit" class="btn btn-sm btn-outline-danger" title="ลบถาวร">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="10" class="text-center py-4 text-subtle">ยังไม่มี rule</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
