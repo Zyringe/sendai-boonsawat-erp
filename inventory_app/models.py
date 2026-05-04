@@ -43,8 +43,16 @@ def get_products(search=None, low_stock=False, hard_to_sell=False,
     having = ("HAVING " + " AND ".join(having_clauses)) if having_clauses else ""
 
     sql = f"""
-        SELECT p.*, COALESCE(s.quantity, 0) AS quantity,
-               CASE WHEN COALESCE(s.quantity, 0) <= p.low_stock_threshold THEN 1 ELSE 0 END AS is_low
+        SELECT p.id, p.sku, p.product_name, p.units_per_carton, p.units_per_box,
+               p.unit_type, p.hard_to_sell, p.cost_price, p.base_sell_price,
+               p.low_stock_threshold, p.is_active, p.brand_id, p.category_id,
+               p.created_at, p.updated_at,
+               COALESCE(s.quantity, 0) AS quantity,
+               CASE WHEN COALESCE(s.quantity, 0) <= p.low_stock_threshold THEN 1 ELSE 0 END AS is_low,
+               COALESCE((SELECT SUM(stock) FROM platform_skus
+                          WHERE platform='shopee' AND internal_product_id=p.id), 0) AS shopee_stock,
+               COALESCE((SELECT SUM(stock) FROM platform_skus
+                          WHERE platform='lazada' AND internal_product_id=p.id), 0) AS lazada_stock
         FROM products p
         LEFT JOIN stock_levels s ON s.product_id = p.id
         WHERE {where}
@@ -70,8 +78,16 @@ def get_products(search=None, low_stock=False, hard_to_sell=False,
 def get_product(product_id):
     conn = get_connection()
     row = conn.execute("""
-        SELECT p.*, COALESCE(s.quantity, 0) AS quantity,
-               CASE WHEN COALESCE(s.quantity, 0) <= p.low_stock_threshold THEN 1 ELSE 0 END AS is_low
+        SELECT p.id, p.sku, p.product_name, p.units_per_carton, p.units_per_box,
+               p.unit_type, p.hard_to_sell, p.cost_price, p.base_sell_price,
+               p.low_stock_threshold, p.is_active, p.brand_id, p.category_id,
+               p.created_at, p.updated_at,
+               COALESCE(s.quantity, 0) AS quantity,
+               CASE WHEN COALESCE(s.quantity, 0) <= p.low_stock_threshold THEN 1 ELSE 0 END AS is_low,
+               COALESCE((SELECT SUM(stock) FROM platform_skus
+                          WHERE platform='shopee' AND internal_product_id=p.id), 0) AS shopee_stock,
+               COALESCE((SELECT SUM(stock) FROM platform_skus
+                          WHERE platform='lazada' AND internal_product_id=p.id), 0) AS lazada_stock
         FROM products p
         LEFT JOIN stock_levels s ON s.product_id = p.id
         WHERE p.id = ?
@@ -2507,9 +2523,65 @@ def import_platform_skus(platform, records):
             r.get('stock'),          r.get('raw_json'),
         ))
         count += 1
+    propagated = _propagate_listings_to_platform_skus(conn, platform)
     conn.commit()
     conn.close()
-    return count
+    return count, propagated
+
+
+def _propagate_listings_to_platform_skus(conn, platform):
+    """
+    After a fresh platform_skus snapshot, restore internal_product_id +
+    qty_per_sale on platform_skus by matching ecommerce_listings on
+    (platform, item_name, variation, seller_sku). Treat 'nan'/NULL/'' as
+    equivalent and fall back to stripping the Lazada 'attr:' prefix.
+    Returns count of platform_skus rows updated.
+    """
+    rows = conn.execute(
+        '''SELECT id, item_name, variation, seller_sku, product_id, qty_per_sale
+           FROM ecommerce_listings
+           WHERE platform = ? AND product_id IS NOT NULL''',
+        (platform,)
+    ).fetchall()
+
+    def _norm(v):
+        s = (v or '').strip()
+        return '' if s.lower() == 'nan' else s
+
+    def _strip_lazada(v):
+        if v and ':' in v:
+            head, _, tail = v.partition(':')
+            if head and tail and ':' not in head:
+                return tail.strip()
+        return v
+
+    update_sql = '''
+        UPDATE platform_skus
+           SET internal_product_id = ?, qty_per_sale = ?
+         WHERE platform = ?
+           AND product_name = ?
+           AND CASE WHEN LOWER(COALESCE(variation_name,'')) IN ('','nan')
+                    THEN '' ELSE variation_name END = ?
+           AND CASE WHEN LOWER(COALESCE(seller_sku,'')) IN ('','nan')
+                    THEN '' ELSE seller_sku END = ?
+    '''
+    total = 0
+    for r in rows:
+        var = _norm(r['variation'])
+        ssk = _norm(r['seller_sku'])
+        cur = conn.execute(update_sql, (
+            r['product_id'], r['qty_per_sale'], platform,
+            r['item_name'], var, ssk
+        ))
+        if cur.rowcount == 0:
+            var2 = _strip_lazada(var)
+            if var2 != var:
+                cur = conn.execute(update_sql, (
+                    r['product_id'], r['qty_per_sale'], platform,
+                    r['item_name'], var2, ssk
+                ))
+        total += cur.rowcount
+    return total
 
 
 def get_platform_skus(platform, search=None, page=1, per_page=50):

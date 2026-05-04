@@ -1146,8 +1146,10 @@ def ecommerce_import():
             flash('ไม่พบข้อมูลในไฟล์', 'warning')
             return redirect(url_for('ecommerce', tab=platform))
 
-        count = models.import_platform_skus(platform, records)
-        flash(f'นำเข้าข้อมูล {platform.capitalize()} สำเร็จ {count} รายการ', 'success')
+        count, propagated = models.import_platform_skus(platform, records)
+        flash(f'นำเข้าข้อมูล {platform.capitalize()} สำเร็จ {count} รายการ '
+              f'(restore mapping {propagated} รายการ จาก ecommerce_listings)',
+              'success')
     except Exception as e:
         flash(f'เกิดข้อผิดพลาด: {e}', 'danger')
 
