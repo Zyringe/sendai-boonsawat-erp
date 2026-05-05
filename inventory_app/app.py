@@ -9,6 +9,7 @@ from datetime import date, datetime
 from flask import (Flask, render_template, request, redirect, url_for,
                    flash, session, jsonify, abort, send_file)
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -25,6 +26,9 @@ from blueprints.supplier_catalogue import bp_supplier_catalogue
 from blueprints.mobile import bp_mobile
 
 app = Flask(__name__)
+# Honor X-Forwarded-Proto/Host from Railway's edge so url_for and post-login
+# redirects use https instead of http. Trust exactly one proxy hop.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 app.config['SECRET_KEY'] = config.SECRET_KEY
 app.config['JSON_AS_ASCII'] = False
 app.config['UPLOAD_FOLDER'] = config.UPLOAD_FOLDER
