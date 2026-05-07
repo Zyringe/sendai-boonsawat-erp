@@ -117,6 +117,8 @@ _STAFF_POST_OK = frozenset([
 _MANAGER_POST_OK = _STAFF_POST_OK | frozenset([
     'import_payments', 'products.product_online_stock',
     'customer_reassign', 'customer_bulk_reassign',
+    'products.product_sku_code_save', 'products.product_regen_sku_code',
+    'mapping_suggestion_approve',
 ])
 # regions_admin POST is intentionally admin-only — gated inline at the top of
 # the route. Other admin-only writes use _require_admin().

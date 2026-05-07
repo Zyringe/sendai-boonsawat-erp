@@ -23,8 +23,8 @@ def get_products(search=None, low_stock=False, hard_to_sell=False,
     conditions = ["p.is_active = 1"]
     params = []
     if search:
-        conditions.append("(p.product_name LIKE ? OR CAST(p.sku AS TEXT) LIKE ?)")
-        params += [f"%{search}%", f"%{search}%"]
+        conditions.append("(p.product_name LIKE ? OR CAST(p.sku AS TEXT) LIKE ? OR p.sku_code LIKE ?)")
+        params += [f"%{search}%", f"%{search}%", f"%{search}%"]
     if hard_to_sell:
         conditions.append("p.hard_to_sell = 1")
     if location:
@@ -43,7 +43,7 @@ def get_products(search=None, low_stock=False, hard_to_sell=False,
     having = ("HAVING " + " AND ".join(having_clauses)) if having_clauses else ""
 
     sql = f"""
-        SELECT p.id, p.sku, p.product_name, p.units_per_carton, p.units_per_box,
+        SELECT p.id, p.sku, p.sku_code, p.product_name, p.units_per_carton, p.units_per_box,
                p.unit_type, p.hard_to_sell, p.cost_price, p.base_sell_price,
                p.low_stock_threshold, p.is_active, p.brand_id, p.category_id,
                p.created_at, p.updated_at,
@@ -78,9 +78,12 @@ def get_products(search=None, low_stock=False, hard_to_sell=False,
 def get_product(product_id):
     conn = get_connection()
     row = conn.execute("""
-        SELECT p.id, p.sku, p.product_name, p.units_per_carton, p.units_per_box,
+        SELECT p.id, p.sku, p.sku_code, p.sku_code_locked,
+               p.product_name, p.units_per_carton, p.units_per_box,
                p.unit_type, p.hard_to_sell, p.cost_price, p.base_sell_price,
                p.low_stock_threshold, p.is_active, p.brand_id, p.category_id,
+               p.sub_category, p.series, p.model, p.size,
+               p.color_code, p.packaging, p.condition, p.pack_variant,
                p.created_at, p.updated_at,
                COALESCE(s.quantity, 0) AS quantity,
                CASE WHEN COALESCE(s.quantity, 0) <= p.low_stock_threshold THEN 1 ELSE 0 END AS is_low,
