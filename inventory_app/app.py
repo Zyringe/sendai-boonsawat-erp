@@ -136,6 +136,7 @@ def inject_auth():
         'real_role':     real_role,
         'alert_count':   models.count_stock_alerts(),
         'db_routes_enabled': app.config['DB_ROUTES_ENABLED'],
+        'pending_suggestions_count': models.count_pending_suggestions(),
     }
 
 
@@ -890,26 +891,67 @@ def review_transactions_delete():
 @app.route('/mapping')
 def mapping():
     pending = models.get_pending_mappings()
+    pending_suggestions = models.get_pending_suggestions()
     conn = get_connection()
     all_products = conn.execute(
         "SELECT id, sku, product_name FROM products WHERE is_active=1 ORDER BY sku"
     ).fetchall()
     next_sku = conn.execute("SELECT COALESCE(MAX(sku),0)+1 FROM products").fetchone()[0]
+    brands = conn.execute(
+        "SELECT id, name, name_th FROM brands ORDER BY is_own_brand DESC, sort_order, name"
+    ).fetchall()
+    color_codes = conn.execute(
+        "SELECT code, name_th FROM color_finish_codes ORDER BY sort_order, code"
+    ).fetchall()
     conn.close()
-    return render_template('mapping.html', pending=pending, all_products=all_products, next_sku=next_sku)
+    tab = request.args.get('tab', 'mapping')
+    return render_template(
+        'mapping.html',
+        pending=pending,
+        pending_suggestions=pending_suggestions,
+        all_products=all_products,
+        next_sku=next_sku,
+        brands=brands,
+        color_codes=color_codes,
+        active_tab=tab,
+    )
+
+
+@app.route('/mapping/suggest/<bsn_code>')
+def mapping_suggest(bsn_code):
+    """Return JSON: top fuzzy matches + parsed fields + cost/unit
+    for the smart-suggest modal on /mapping."""
+    if not session.get('role'):
+        abort(403)
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT bsn_code, bsn_name FROM product_code_mapping WHERE bsn_code = ?",
+        (bsn_code,),
+    ).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'unknown bsn_code'}), 404
+    import bsn_suggest
+    out = bsn_suggest.suggest_for_bsn(conn, bsn_code, row['bsn_name'])
+    conn.close()
+    return jsonify(out)
 
 
 @app.route('/mapping/save', methods=['POST'])
 def mapping_save():
     data = request.get_json()
+    user_id = session.get('user_id')
     for item in data.get('mappings', []):
         bsn_code = item.get('bsn_code')
-        action   = item.get('action')       # 'map', 'new', 'ignore'
+        action   = item.get('action')       # 'map', 'new', 'ignore', 'stage'
         if action == 'map':
             models.upsert_mapping(bsn_code, item['bsn_name'],
                                   product_id=int(item['product_id']))
         elif action == 'new':
-            # ใช้ SKU ที่ user กำหนดจาก UI หรือ auto MAX+1
+            # legacy quick-create — admin-only path. Still supported but
+            # smart-suggest flow uses 'stage' instead so manager review applies.
+            if session.get('role') != 'admin':
+                continue
             try:
                 sku_to_use = int(item.get('new_sku') or 0)
             except (ValueError, TypeError):
@@ -932,6 +974,28 @@ def mapping_save():
                 'lazada_stock': 0,
             })
             models.upsert_mapping(bsn_code, item['bsn_name'], product_id=pid)
+        elif action == 'stage':
+            # Smart-suggest flow: stage new SKU for manager/admin review
+            payload = {
+                'bsn_code': bsn_code,
+                'bsn_name': item['bsn_name'],
+                'suggested_name': item.get('suggested_name'),
+                'category': item.get('category'),
+                'series': item.get('series'),
+                'brand_id': item.get('brand_id') or None,
+                'model': item.get('model'),
+                'size': item.get('size'),
+                'color_th': item.get('color_th'),
+                'color_code': item.get('color_code') or None,
+                'packaging': item.get('packaging') or None,
+                'condition': item.get('condition'),
+                'pack_variant': item.get('pack_variant'),
+                'suggested_cost': float(item.get('suggested_cost') or 0),
+                'suggested_unit_type': item.get('suggested_unit_type') or 'ตัว',
+                'units_per_carton': item.get('units_per_carton'),
+                'units_per_box': item.get('units_per_box'),
+            }
+            models.save_pending_suggestion(payload, user_id)
         elif action == 'ignore':
             models.upsert_mapping(bsn_code, item['bsn_name'], is_ignored=1)
 
@@ -941,7 +1005,36 @@ def mapping_save():
     conn.close()
 
     pending_left = len(models.get_pending_mappings())
-    return jsonify({'ok': True, 'pending_left': pending_left})
+    pending_sugg = models.count_pending_suggestions()
+    return jsonify({'ok': True, 'pending_left': pending_left,
+                    'pending_suggestions': pending_sugg})
+
+
+@app.route('/mapping/suggestions/<int:sid>/approve', methods=['POST'])
+def mapping_suggestion_approve(sid):
+    """Manager/admin approves a staged SKU suggestion.
+    Body may include edits to override staged fields before product creation."""
+    if session.get('role') not in ('admin', 'manager'):
+        abort(403)
+    edits = request.get_json() or {}
+    # cast brand_id to int if present
+    if edits.get('brand_id'):
+        try:
+            edits['brand_id'] = int(edits['brand_id'])
+        except (TypeError, ValueError):
+            edits['brand_id'] = None
+    if edits.get('suggested_cost') is not None:
+        try:
+            edits['suggested_cost'] = float(edits['suggested_cost'])
+        except (TypeError, ValueError):
+            edits['suggested_cost'] = 0.0
+    try:
+        new_pid = models.approve_pending_suggestion(
+            sid, edits, session.get('user_id')
+        )
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, 'product_id': new_pid})
 
 
 # ── Sales View ────────────────────────────────────────────────────────────────

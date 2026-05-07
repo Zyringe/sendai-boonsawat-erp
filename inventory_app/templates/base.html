@@ -132,6 +132,9 @@
     <a href="{{ url_for('mapping') }}"
        class="sidebar-link {% if request.endpoint == 'mapping' %}active{% endif %}">
       <i class="bi bi-tags"></i> ผูกรหัส BSN
+      {% if is_manager and pending_suggestions_count %}
+      <span class="badge bg-danger ms-auto">{{ pending_suggestions_count }}</span>
+      {% endif %}
     </a>
     <a href="{{ url_for('unit_conversions') }}"
        class="sidebar-link {% if request.endpoint == 'unit_conversions' %}active{% endif %}">
