@@ -279,9 +279,7 @@ function approveSuggestion(id, hasBsnUnit, hasBrandOther, hasColorOther, hasPkgO
                 <div class="ac-drop" id="sm-product-drop"></div>
               </div>
 
-              {# Unit conversion at map-time — always shown when product picked.
-                 BSN unit auto-fills from latest purchase but is editable for cases
-                 where bsn_code has no purchase yet (or BSN file uses different unit). #}
+              {# Unit conversion at map-time — always shown when product picked. #}
               <div id="sm-mapconv" class="mt-2" style="display:none">
                 <label class="form-label small mb-1">
                   <i class="bi bi-arrow-left-right me-1"></i>
@@ -290,14 +288,14 @@ function approveSuggestion(id, hasBsnUnit, hasBrandOther, hasColorOther, hasPkgO
                 <div class="input-group input-group-sm">
                   <span class="input-group-text">1</span>
                   <input type="text" class="form-control" id="sm-mapconv-bsn-unit"
-                         style="max-width:90px" placeholder="หน่วย BSN">
+                         style="max-width:110px" placeholder="หน่วย BSN">
                   <span class="input-group-text">=</span>
                   <input type="number" step="0.01" class="form-control" id="sm-mapconv-ratio"
                          placeholder="ratio (เช่น 50)">
                   <span class="input-group-text" id="sm-mapconv-prod-unit">หน่วยสินค้า</span>
                 </div>
-                <div class="form-text small">
-                  เว้นว่าง = ไม่บันทึก unit_conversion (สมมติ BSN กับสินค้าใช้หน่วยเดียวกัน)
+                <div class="form-text small" id="sm-mapconv-hint">
+                  <!-- populated dynamically: source of bsn_unit value -->
                 </div>
               </div>
 
@@ -523,6 +521,17 @@ function populateSuggestModal(data) {
   document.getElementById('sm-base-unit-display').textContent = 'ตัว';
   document.getElementById('sm-ignore-reason').value = '';
 
+  // Auto-prefill ratio in Card B if parser detected packaging-with-count
+  // pattern (e.g. "(ซอง100ตัว)" → packaging=ซอง, units_per_box=100, BSN unit
+  // likely matches packaging → ratio = 100)
+  if (p.units_per_box && (_smBsnUnit === p.packaging || !_smBsnUnit)) {
+    document.getElementById('sm-ratio').value = p.units_per_box;
+    if (!_smBsnUnit) {
+      _smBsnUnit = p.packaging;
+      document.getElementById('sm-bunit').textContent = p.packaging;
+    }
+  }
+
   refreshUnitConvVisibility();
 }
 
@@ -552,13 +561,23 @@ function pickMatch(el) {
 
 function showMapConv(productUnit) {
   // Always show conversion row when a product is picked.
-  // BSN unit auto-fills from latest purchase if known, but is fully editable
-  // (covers case where bsn_code has no purchase yet).
   const row = document.getElementById('sm-mapconv');
   const bsnInput = document.getElementById('sm-mapconv-bsn-unit');
   const prodSpan = document.getElementById('sm-mapconv-prod-unit');
+  const hint = document.getElementById('sm-mapconv-hint');
   prodSpan.textContent = productUnit || 'หน่วยสินค้า';
   if (!bsnInput.value && _smBsnUnit) bsnInput.value = _smBsnUnit;
+
+  // Tell user where the BSN unit value came from + why it's editable
+  if (_smBsnUnit) {
+    hint.innerHTML = '<i class="bi bi-info-circle"></i> หน่วย BSN <code>' +
+      _smBsnUnit + '</code> มาจาก purchase ล่าสุดของ BSN code นี้ — แก้ได้ถ้าผิด. ' +
+      'เว้น ratio ว่าง = ไม่บันทึก unit_conversion';
+  } else {
+    hint.innerHTML = '<i class="bi bi-exclamation-triangle text-warning"></i> ' +
+      'BSN code นี้<strong>ยังไม่มี purchase row</strong> — โปรดระบุหน่วย BSN เอง ' +
+      '(หรือเว้นว่างถ้าหน่วยเดียวกับสินค้า)';
+  }
   row.style.display = '';
 }
 
