@@ -32,7 +32,13 @@ CONDITION_TOKENS = (
     "เก่า", "ไม่สวย", "ตำหนิ",
     "หมดอายุ", "ไม่สกรีน", "ไม่มีน็อต",
 )
-PACKAGING_TOKENS = ("แผง", "ตัว", "ถุง", "แพ็คหัว", "แพ็คถุง")
+PACKAGING_TOKENS = ("แผง", "ตัว", "ถุง", "แพ็คหัว", "แพ็คถุง",
+                    "ซอง", "อัดแผง", "แพ็ค", "แบบหลอด", "โหล")
+
+# Packaging-with-count patterns: "(ซอง100ตัว)" → packaging="ซอง", units_per_box=100
+# Tokens that can appear with a count + inner unit
+_PKG_COUNT_TOKENS = ("ซอง", "แพ็ค", "โหล", "กล", "กล่อง", "ห่อ", "ถุง")
+_PKG_COUNT_INNER_UNITS = ("ตัว", "ดอก", "ใบ", "ชิ้น", "อัน", "เส้น")
 
 ALIASES = {
     "S/D":      "Sendai",
@@ -105,6 +111,8 @@ def parse_name(name: str, brand_rec: dict | None,
         "color_th", "color_code", "packaging", "condition",
         "pack_variant",
     ], "")
+    # Optional metadata returned alongside structured fields
+    out["units_per_box"] = ""
 
     if brand_rec:
         out["brand"] = brand_rec.get("name") or ""
@@ -151,13 +159,27 @@ def parse_name(name: str, brand_rec: dict | None,
             work = work[:m.start()] + work[m.end():]
             break
 
-    # 2) Packaging (แผง/ตัว/ถุง) — second-to-last bracket
-    for tok in PACKAGING_TOKENS:
-        m = re.search(rf"\(\s*{tok}\s*\)", work)
-        if m:
-            out["packaging"] = tok
-            work = work[:m.start()] + work[m.end():]
-            break
+    # 2a) Packaging-with-count: "(ซอง100ตัว)" → packaging=ซอง, units_per_box=100
+    #     Tries before the simpler "(ซอง)" match because it's more specific.
+    pkg_count_re = (
+        r"\(\s*(" + "|".join(_PKG_COUNT_TOKENS) + r")\s*"
+        r"(\d+)\s*"
+        r"(" + "|".join(_PKG_COUNT_INNER_UNITS) + r")?\s*\)"
+    )
+    m = re.search(pkg_count_re, work)
+    if m:
+        out["packaging"] = m.group(1)
+        out["units_per_box"] = m.group(2)
+        work = work[:m.start()] + work[m.end():]
+
+    # 2b) Packaging (แผง/ตัว/ถุง/...) — second-to-last bracket, simple form
+    if not out["packaging"]:
+        for tok in PACKAGING_TOKENS:
+            m = re.search(rf"\(\s*{tok}\s*\)", work)
+            if m:
+                out["packaging"] = tok
+                work = work[:m.start()] + work[m.end():]
+                break
 
     # 3) Pack-variant — trailing standalone digit (rule 13 legacy)
     m = re.search(r"\s+-?\s*(\d{1,2})\s*$", work)
@@ -223,6 +245,15 @@ def parse_name(name: str, brand_rec: dict | None,
                 out["color_th"] = name_th
                 work = re.sub(patt_bare, "", work, flags=re.IGNORECASE)
                 break
+
+    # 5z) Reverse-fill color_code from color_th if a basic-color code now
+    #     exists in DB (post-mig 038: BLK/WHT/RED/etc.). Only fill when
+    #     color_code is still empty — preserves explicit (CODE) detection from step 4.
+    if out["color_th"] and not out["color_code"]:
+        # Build name_th → code map (case-sensitive Thai)
+        name_to_code = {v: k for k, v in color_codes.items()}
+        if out["color_th"] in name_to_code:
+            out["color_code"] = name_to_code[out["color_th"]]
 
     # 6) Size — digit (+ optional .frac) + unit. Supports multi-segment:
     #      '4นิ้วx3นิ้วx2.5mm' → '4inx3inx2.5mm'

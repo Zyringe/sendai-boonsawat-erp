@@ -836,16 +836,34 @@ def get_mapping(bsn_code: str):
     return row
 
 
-def upsert_mapping(bsn_code: str, bsn_name: str, product_id=None, is_ignored=0):
+def upsert_mapping(bsn_code: str, bsn_name: str, product_id=None, is_ignored=0,
+                   ignore_reason=None):
     conn = get_connection()
     conn.execute("""
-        INSERT INTO product_code_mapping (bsn_code, bsn_name, product_id, is_ignored)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO product_code_mapping (bsn_code, bsn_name, product_id, is_ignored, ignore_reason)
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(bsn_code) DO UPDATE SET
-            bsn_name   = excluded.bsn_name,
-            product_id = excluded.product_id,
-            is_ignored = excluded.is_ignored
-    """, (bsn_code, bsn_name, product_id, is_ignored))
+            bsn_name      = excluded.bsn_name,
+            product_id    = excluded.product_id,
+            is_ignored    = excluded.is_ignored,
+            ignore_reason = excluded.ignore_reason
+    """, (bsn_code, bsn_name, product_id, is_ignored, ignore_reason))
+    conn.commit()
+    conn.close()
+
+
+def upsert_unit_conversion(product_id: int, bsn_unit: str, ratio: float):
+    """Set unit_conversion ratio for a (product, bsn_unit) pair.
+    UNIQUE constraint on (product_id, bsn_unit) ensures upsert semantics."""
+    if not bsn_unit or not ratio or float(ratio) <= 0:
+        return
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO unit_conversions (product_id, bsn_unit, ratio)
+        VALUES (?, ?, ?)
+        ON CONFLICT(product_id, bsn_unit) DO UPDATE SET
+            ratio = excluded.ratio
+    """, (product_id, bsn_unit, float(ratio)))
     conn.commit()
     conn.close()
 
@@ -3582,3 +3600,234 @@ def suggest_listing_mapping():
         product = product_list[best_idx[i]]
         results[lid] = {'suggested_sku': product['sku'], 'suggested_name': product['product_name'], 'confidence': score}
     return results
+
+
+
+# ── Pending product suggestions (smart BSN mapping) ─────────────────────────
+
+def count_pending_suggestions() -> int:
+    conn = get_connection()
+    n = conn.execute(
+        "SELECT COUNT(*) FROM pending_product_suggestions WHERE status='pending'"
+    ).fetchone()[0]
+    conn.close()
+    return n
+
+
+def get_pending_suggestions():
+    """List of suggestions awaiting manager/admin review, oldest first."""
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT pps.*, u.display_name AS suggested_by_name, b.name AS brand_name
+          FROM pending_product_suggestions pps
+          LEFT JOIN users u ON u.id = pps.suggested_by_user_id
+          LEFT JOIN brands b ON b.id = pps.brand_id
+         WHERE pps.status = 'pending'
+         ORDER BY pps.created_at ASC
+    """).fetchall()
+    conn.close()
+    return rows
+
+
+def get_pending_suggestion(suggestion_id: int):
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM pending_product_suggestions WHERE id = ?",
+        (suggestion_id,),
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def save_pending_suggestion(data: dict, user_id: int) -> int:
+    """Insert a new staged SKU suggestion. Returns new suggestion id.
+    UPSERT on bsn_code so re-submitting overwrites the prior staged version.
+    `data` may include free-text overrides (brand_other_name, color_code_other,
+    packaging_other) and unit-conversion hints (bsn_unit, unit_conversion_ratio)."""
+    # Default any missing extras to None so SQL params bind cleanly
+    for k in ('brand_other_name', 'color_code_other', 'packaging_other',
+              'bsn_unit', 'unit_conversion_ratio'):
+        data.setdefault(k, None)
+    conn = get_connection()
+    cur = conn.execute("""
+        INSERT INTO pending_product_suggestions
+          (bsn_code, bsn_name, suggested_name, category, series, brand_id,
+           model, size, color_th, color_code, packaging, condition, pack_variant,
+           suggested_cost, suggested_unit_type, units_per_carton, units_per_box,
+           brand_other_name, color_code_other, packaging_other,
+           bsn_unit, unit_conversion_ratio,
+           suggested_by_user_id, status)
+        VALUES
+          (:bsn_code, :bsn_name, :suggested_name, :category, :series, :brand_id,
+           :model, :size, :color_th, :color_code, :packaging, :condition, :pack_variant,
+           :suggested_cost, :suggested_unit_type, :units_per_carton, :units_per_box,
+           :brand_other_name, :color_code_other, :packaging_other,
+           :bsn_unit, :unit_conversion_ratio,
+           :suggested_by_user_id, 'pending')
+        ON CONFLICT(bsn_code) DO UPDATE SET
+            bsn_name = excluded.bsn_name,
+            suggested_name = excluded.suggested_name,
+            category = excluded.category,
+            series = excluded.series,
+            brand_id = excluded.brand_id,
+            model = excluded.model,
+            size = excluded.size,
+            color_th = excluded.color_th,
+            color_code = excluded.color_code,
+            packaging = excluded.packaging,
+            condition = excluded.condition,
+            pack_variant = excluded.pack_variant,
+            suggested_cost = excluded.suggested_cost,
+            suggested_unit_type = excluded.suggested_unit_type,
+            units_per_carton = excluded.units_per_carton,
+            units_per_box = excluded.units_per_box,
+            brand_other_name = excluded.brand_other_name,
+            color_code_other = excluded.color_code_other,
+            packaging_other = excluded.packaging_other,
+            bsn_unit = excluded.bsn_unit,
+            unit_conversion_ratio = excluded.unit_conversion_ratio,
+            suggested_by_user_id = excluded.suggested_by_user_id,
+            status = 'pending'
+    """, {**data, 'suggested_by_user_id': user_id})
+    conn.commit()
+    sid = cur.lastrowid or conn.execute(
+        "SELECT id FROM pending_product_suggestions WHERE bsn_code = ?",
+        (data['bsn_code'],)
+    ).fetchone()[0]
+    conn.close()
+    return sid
+
+
+def approve_pending_suggestion(suggestion_id: int, edits: dict, reviewer_id: int) -> int:
+    """Apply manager/admin edits → create product → map BSN code → mark approved.
+    Returns the new product id. Single transaction.
+    `edits` dict overrides any field on the staged suggestion."""
+    conn = get_connection()
+    try:
+        sug = conn.execute(
+            "SELECT * FROM pending_product_suggestions WHERE id = ? AND status='pending'",
+            (suggestion_id,)
+        ).fetchone()
+        if not sug:
+            raise ValueError(f'suggestion {suggestion_id} not found or already approved')
+
+        # Merge: edits overrides suggestion
+        d = dict(sug)
+        d.update({k: v for k, v in edits.items() if v is not None})
+
+        # Resolve free-text overrides into FK-target rows where possible.
+        # brand: if brand_other_name set and no brand_id → INSERT new brand row
+        if not d.get('brand_id') and d.get('brand_other_name'):
+            new_brand_name = d['brand_other_name'].strip()
+            if new_brand_name:
+                # Use display name as both code and name
+                code = new_brand_name.upper().replace(' ', '_')[:30]
+                cur = conn.execute(
+                    "INSERT OR IGNORE INTO brands (code, name, name_th, is_own_brand, sort_order)"
+                    " VALUES (?, ?, ?, 0, 100)",
+                    (code, new_brand_name, new_brand_name)
+                )
+                bid = cur.lastrowid or conn.execute(
+                    "SELECT id FROM brands WHERE code = ?", (code,)
+                ).fetchone()[0]
+                d['brand_id'] = bid
+
+        # color: if color_code_other set and no color_code → INSERT new color row
+        if not d.get('color_code') and d.get('color_code_other'):
+            new_code = d['color_code_other'].strip().upper()[:10]
+            color_th = d.get('color_th') or new_code
+            if new_code:
+                conn.execute(
+                    "INSERT OR IGNORE INTO color_finish_codes (code, name_th, sort_order)"
+                    " VALUES (?, ?, 100)",
+                    (new_code, color_th)
+                )
+                d['color_code'] = new_code
+
+        # packaging: free-text override is stored if dropdown empty
+        # (may fail CHECK trigger on products INSERT — admin must extend trigger first)
+        if not d.get('packaging') and d.get('packaging_other'):
+            d['packaging'] = d['packaging_other'].strip()
+
+        # next sku
+        next_sku = conn.execute(
+            "SELECT COALESCE(MAX(sku),0)+1 FROM products"
+        ).fetchone()[0]
+
+        # Insert product with structured fields
+        cur = conn.execute("""
+            INSERT INTO products
+              (sku, product_name, unit_type, hard_to_sell,
+               cost_price, base_sell_price, low_stock_threshold,
+               shopee_stock, lazada_stock,
+               brand_id, color_code, packaging,
+               series, model, size, condition, pack_variant,
+               units_per_carton, units_per_box)
+            VALUES
+              (?, ?, ?, 0, ?, 0.0, 10, 0, 0,
+               ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            next_sku,
+            d.get('suggested_name') or d.get('bsn_name'),
+            d.get('suggested_unit_type') or 'ตัว',
+            d.get('suggested_cost') or 0.0,
+            d.get('brand_id'),
+            d.get('color_code') or None,
+            d.get('packaging') or None,
+            d.get('series') or None,
+            d.get('model') or None,
+            d.get('size') or None,
+            d.get('condition') or None,
+            d.get('pack_variant') or None,
+            d.get('units_per_carton'),
+            d.get('units_per_box'),
+        ))
+        new_pid = cur.lastrowid
+
+        # ensure stock_levels row
+        conn.execute(
+            "INSERT OR IGNORE INTO stock_levels (product_id, quantity) VALUES (?, 0)",
+            (new_pid,)
+        )
+
+        # Upsert mapping (bsn_code → new product)
+        conn.execute("""
+            INSERT INTO product_code_mapping (bsn_code, bsn_name, product_id, is_ignored)
+            VALUES (?, ?, ?, 0)
+            ON CONFLICT(bsn_code) DO UPDATE SET
+                product_id = excluded.product_id,
+                is_ignored = 0
+        """, (sug['bsn_code'], sug['bsn_name'], new_pid))
+
+        # Mark suggestion approved
+        conn.execute("""
+            UPDATE pending_product_suggestions
+               SET status = 'approved',
+                   reviewed_by_user_id = ?,
+                   approved_product_id = ?,
+                   reviewed_at = datetime('now','localtime')
+             WHERE id = ?
+        """, (reviewer_id, new_pid, suggestion_id))
+
+        # Auto-create unit_conversion if BSN ships in different unit than product
+        bsn_unit = d.get('bsn_unit')
+        ratio = d.get('unit_conversion_ratio')
+        product_unit = d.get('suggested_unit_type') or 'ตัว'
+        if bsn_unit and ratio and float(ratio) > 0 and bsn_unit != product_unit:
+            conn.execute("""
+                INSERT INTO unit_conversions (product_id, bsn_unit, ratio)
+                VALUES (?, ?, ?)
+                ON CONFLICT(product_id, bsn_unit) DO UPDATE SET
+                    ratio = excluded.ratio
+            """, (new_pid, bsn_unit, float(ratio)))
+
+        # Backfill product_id on existing unlinked transaction rows
+        resolve_pending_mappings(conn)
+
+        conn.commit()
+        return new_pid
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
