@@ -494,7 +494,8 @@ function populateSuggestModal(data) {
       return `<div class="match-row ${cls}" data-pid="${m.product_id}" data-unit="${m.unit_type}" onclick="pickMatch(this)">
         ${star}<span class="ac-sku">${m.sku}</span>
         <span class="flex-fill">${m.product_name}</span>
-        <span class="badge ${stockBadgeCls}" title="สต็อกปัจจุบัน">📦 ${m.stock} ${m.unit_type}</span>
+        <span class="badge bg-info text-dark" title="หน่วยของสินค้า">⚖️ ${m.unit_type}</span>
+        <span class="badge ${stockBadgeCls}" title="สต็อกปัจจุบัน">📦 ${m.stock}</span>
         <span class="text-subtle small">${pct}%</span>
       </div>`;
     }).join('');
@@ -600,7 +601,8 @@ function showMapConv(productUnit) {
           const stockBadgeCls = p.stock > 0 ? 'bg-success' : 'bg-secondary';
           div.innerHTML = `<span class="ac-sku">${p.sku}</span>
             <span class="flex-fill">${p.name}</span>
-            <span class="badge ${stockBadgeCls}" title="สต็อกปัจจุบัน">📦 ${p.stock} ${p.unit_type || 'ตัว'}</span>`;
+            <span class="badge bg-info text-dark" title="หน่วยของสินค้า">⚖️ ${p.unit_type || 'ตัว'}</span>
+            <span class="badge ${stockBadgeCls}" title="สต็อกปัจจุบัน">📦 ${p.stock}</span>`;
           return div.outerHTML;
         }).join('')
       : '<div class="ac-item text-subtle">ไม่พบสินค้า</div>';

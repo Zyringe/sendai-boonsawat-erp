@@ -246,6 +246,15 @@ def parse_name(name: str, brand_rec: dict | None,
                 work = re.sub(patt_bare, "", work, flags=re.IGNORECASE)
                 break
 
+    # 5z) Reverse-fill color_code from color_th if a basic-color code now
+    #     exists in DB (post-mig 038: BLK/WHT/RED/etc.). Only fill when
+    #     color_code is still empty — preserves explicit (CODE) detection from step 4.
+    if out["color_th"] and not out["color_code"]:
+        # Build name_th → code map (case-sensitive Thai)
+        name_to_code = {v: k for k, v in color_codes.items()}
+        if out["color_th"] in name_to_code:
+            out["color_code"] = name_to_code[out["color_th"]]
+
     # 6) Size — digit (+ optional .frac) + unit. Supports multi-segment:
     #      '4นิ้วx3นิ้วx2.5mm' → '4inx3inx2.5mm'
     #      '120 mm.' → '120mm'
