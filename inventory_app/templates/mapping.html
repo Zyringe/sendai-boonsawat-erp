@@ -279,17 +279,25 @@ function approveSuggestion(id, hasBsnUnit, hasBrandOther, hasColorOther, hasPkgO
                 <div class="ac-drop" id="sm-product-drop"></div>
               </div>
 
-              {# Unit conversion at map-time (if BSN unit ≠ selected product unit) #}
+              {# Unit conversion at map-time — always shown when product picked.
+                 BSN unit auto-fills from latest purchase but is editable for cases
+                 where bsn_code has no purchase yet (or BSN file uses different unit). #}
               <div id="sm-mapconv" class="mt-2" style="display:none">
-                <label class="form-label small mb-1 text-warning">
-                  <i class="bi bi-info-circle"></i> หน่วย BSN กับสินค้าไม่ตรงกัน — ระบุ ratio:
+                <label class="form-label small mb-1">
+                  <i class="bi bi-arrow-left-right me-1"></i>
+                  Unit conversion (ระบุถ้าหน่วย BSN ต่างจากหน่วยสินค้าเดิม)
                 </label>
                 <div class="input-group input-group-sm">
                   <span class="input-group-text">1</span>
-                  <span class="input-group-text" id="sm-mapconv-bsn-unit">ซอง</span>
+                  <input type="text" class="form-control" id="sm-mapconv-bsn-unit"
+                         style="max-width:90px" placeholder="หน่วย BSN">
                   <span class="input-group-text">=</span>
-                  <input type="number" step="0.01" class="form-control" id="sm-mapconv-ratio" placeholder="เช่น 50">
-                  <span class="input-group-text" id="sm-mapconv-prod-unit">ดอก</span>
+                  <input type="number" step="0.01" class="form-control" id="sm-mapconv-ratio"
+                         placeholder="ratio (เช่น 50)">
+                  <span class="input-group-text" id="sm-mapconv-prod-unit">หน่วยสินค้า</span>
+                </div>
+                <div class="form-text small">
+                  เว้นว่าง = ไม่บันทึก unit_conversion (สมมติ BSN กับสินค้าใช้หน่วยเดียวกัน)
                 </div>
               </div>
 
@@ -429,7 +437,9 @@ function approveSuggestion(id, hasBsnUnit, hasBrandOther, hasColorOther, hasPkgO
 <script>
 const allProducts = [
   {% for p in all_products %}
-  { id: {{ p.id }}, sku: {{ p.sku }}, name: {{ p.product_name | tojson }}, unit_type: {{ (p.unit_type or 'ตัว') | tojson }} },
+  { id: {{ p.id }}, sku: {{ p.sku }}, name: {{ p.product_name | tojson }},
+    unit_type: {{ (p.unit_type or 'ตัว') | tojson }},
+    stock: {{ p.stock or 0 }} },
   {% endfor %}
 ];
 
@@ -482,9 +492,11 @@ function populateSuggestModal(data) {
       const cls = m.is_likely ? 'likely' : '';
       const star = m.is_likely ? '⭐ ' : '';
       const pct = (m.score * 100).toFixed(0);
+      const stockBadgeCls = m.stock > 0 ? 'bg-success' : 'bg-secondary';
       return `<div class="match-row ${cls}" data-pid="${m.product_id}" data-unit="${m.unit_type}" onclick="pickMatch(this)">
         ${star}<span class="ac-sku">${m.sku}</span>
         <span class="flex-fill">${m.product_name}</span>
+        <span class="badge ${stockBadgeCls}" title="สต็อกปัจจุบัน">📦 ${m.stock} ${m.unit_type}</span>
         <span class="text-subtle small">${pct}%</span>
       </div>`;
     }).join('');
@@ -535,18 +547,19 @@ function pickMatch(el) {
   document.getElementById('sm-product-unit').value = punit;
   document.getElementById('sm-product-search').value =
     el.querySelector('.ac-sku').textContent + ' — ' + el.querySelector('.flex-fill').textContent;
-  refreshMapConvVisibility(punit);
+  showMapConv(punit);
 }
 
-function refreshMapConvVisibility(productUnit) {
+function showMapConv(productUnit) {
+  // Always show conversion row when a product is picked.
+  // BSN unit auto-fills from latest purchase if known, but is fully editable
+  // (covers case where bsn_code has no purchase yet).
   const row = document.getElementById('sm-mapconv');
-  if (_smBsnUnit && productUnit && _smBsnUnit !== productUnit) {
-    document.getElementById('sm-mapconv-bsn-unit').textContent = _smBsnUnit;
-    document.getElementById('sm-mapconv-prod-unit').textContent = productUnit;
-    row.style.display = '';
-  } else {
-    row.style.display = 'none';
-  }
+  const bsnInput = document.getElementById('sm-mapconv-bsn-unit');
+  const prodSpan = document.getElementById('sm-mapconv-prod-unit');
+  prodSpan.textContent = productUnit || 'หน่วยสินค้า';
+  if (!bsnInput.value && _smBsnUnit) bsnInput.value = _smBsnUnit;
+  row.style.display = '';
 }
 
 /* ── Searchable autocomplete in Card A ── */
@@ -565,7 +578,10 @@ function refreshMapConvVisibility(productUnit) {
           div.dataset.id    = p.id;
           div.dataset.unit  = p.unit_type || 'ตัว';
           div.dataset.label = p.sku + ' — ' + p.name;
-          div.innerHTML = `<span class="ac-sku">${p.sku}</span><span>${p.name}</span>`;
+          const stockBadgeCls = p.stock > 0 ? 'bg-success' : 'bg-secondary';
+          div.innerHTML = `<span class="ac-sku">${p.sku}</span>
+            <span class="flex-fill">${p.name}</span>
+            <span class="badge ${stockBadgeCls}" title="สต็อกปัจจุบัน">📦 ${p.stock} ${p.unit_type || 'ตัว'}</span>`;
           return div.outerHTML;
         }).join('')
       : '<div class="ac-item text-subtle">ไม่พบสินค้า</div>';
@@ -585,7 +601,7 @@ function refreshMapConvVisibility(productUnit) {
     document.getElementById('sm-product-id').value = item.dataset.id;
     document.getElementById('sm-product-unit').value = item.dataset.unit;
     drop.classList.remove('open');
-    refreshMapConvVisibility(item.dataset.unit);
+    showMapConv(item.dataset.unit);
   });
   input.addEventListener('input', () => {
     document.getElementById('sm-product-id').value = '';
@@ -617,9 +633,11 @@ function confirmExistingMap() {
     action: 'map',
     product_id: pid,
   };
+  // Capture unit_conversion if user filled BOTH bsn_unit + ratio
+  const bsnUnitInput = document.getElementById('sm-mapconv-bsn-unit').value.trim();
   const ratio = document.getElementById('sm-mapconv-ratio').value;
-  if (_smBsnUnit && ratio && parseFloat(ratio) > 0) {
-    entry.bsn_unit = _smBsnUnit;
+  if (bsnUnitInput && ratio && parseFloat(ratio) > 0) {
+    entry.bsn_unit = bsnUnitInput;
     entry.unit_conversion_ratio = ratio;
   }
   saveSingle(entry);

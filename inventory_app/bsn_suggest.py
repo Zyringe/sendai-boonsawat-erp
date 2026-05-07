@@ -84,6 +84,7 @@ def _fuzzy_match(bsn_name: str, products: list) -> list:
                 'sku':          p['sku'],
                 'product_name': name,
                 'unit_type':    p['unit_type'] if 'unit_type' in p.keys() else 'ตัว',
+                'stock':        p['stock'] if 'stock' in p.keys() else 0,
                 'score':        round(score, 3),
                 'is_likely':    score >= FUZZY_THRESHOLD,
             })
@@ -181,10 +182,15 @@ def suggest_for_bsn(conn, bsn_code: str, bsn_name: str) -> dict:
     """
     ctx = _load_parser_context(conn)
 
-    # Fuzzy match existing — include unit_type so modal can flag unit mismatch
-    products = conn.execute(
-        "SELECT id, sku, product_name, unit_type FROM products WHERE is_active = 1"
-    ).fetchall()
+    # Fuzzy match existing — include unit_type + stock so modal can show
+    # unit mismatch warning + current stock per candidate
+    products = conn.execute("""
+        SELECT p.id, p.sku, p.product_name, p.unit_type,
+               COALESCE(s.quantity, 0) AS stock
+          FROM products p
+          LEFT JOIN stock_levels s ON s.product_id = p.id
+         WHERE p.is_active = 1
+    """).fetchall()
     matches = _fuzzy_match(bsn_name, products)
 
     # Parse + propose name

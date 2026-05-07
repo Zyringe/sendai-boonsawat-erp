@@ -893,9 +893,14 @@ def mapping():
     pending = models.get_pending_mappings()
     pending_suggestions = models.get_pending_suggestions()
     conn = get_connection()
-    all_products = conn.execute(
-        "SELECT id, sku, product_name FROM products WHERE is_active=1 ORDER BY sku"
-    ).fetchall()
+    all_products = conn.execute("""
+        SELECT p.id, p.sku, p.product_name, p.unit_type,
+               COALESCE(s.quantity, 0) AS stock
+          FROM products p
+          LEFT JOIN stock_levels s ON s.product_id = p.id
+         WHERE p.is_active = 1
+         ORDER BY p.sku
+    """).fetchall()
     next_sku = conn.execute("SELECT COALESCE(MAX(sku),0)+1 FROM products").fetchone()[0]
     brands = conn.execute(
         "SELECT id, name, name_th FROM brands ORDER BY is_own_brand DESC, sort_order, name"
