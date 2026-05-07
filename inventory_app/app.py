@@ -336,6 +336,39 @@ _UPLOAD_DIFF_TABLES = (
     'products', 'customers',
 )
 
+# MASTER_TABLES = tables Put owns on local — replaced from upload in
+# master-only mode. Transaction tables and anything else are preserved
+# from current prod (whitelist approach: safer to add than to forget).
+# Friend's "อัพเดทข้อมูล" tab writes to transaction tables only, so this
+# split lets Put push schema/master changes without wiping friend's interim
+# transaction uploads.
+_MASTER_TABLES = (
+    # Schema sync
+    'applied_migrations',
+    # Product master
+    'products',
+    'product_families', 'product_images',
+    'product_attributes', 'product_brand_map',
+    'product_locations', 'product_barcodes',
+    'product_price_tiers',
+    # Lookup master
+    'brands', 'categories', 'color_finish_codes',
+    # Mapping master
+    'product_code_mapping', 'unit_conversions',
+    'conversion_formulas', 'conversion_formula_inputs',
+    # Operations master
+    'regions', 'customer_regions',
+    'expense_categories', 'promotions',
+    'platform_skus', 'ecommerce_listings', 'listing_bundles',
+    'po_sequences', 'salespersons',
+    'commission_tiers', 'commission_assignments', 'commission_overrides',
+    # Supplier master
+    'suppliers',
+    'supplier_catalogue_items', 'supplier_catalogue_versions',
+    'supplier_catalogue_price_history',
+    'supplier_product_mapping',
+)
+
 
 def _count_rows(db_path, table):
     try:
@@ -368,6 +401,88 @@ def _diff_db_row_counts(current_path, uploaded_path):
     return rows
 
 
+def _diff_master_tables(current_path, uploaded_path):
+    """Preview row counts for MASTER tables only — used in master-only mode.
+    No 'warning' flag because master-only doesn't risk transaction data loss."""
+    rows = []
+    for table in _MASTER_TABLES:
+        cur = _count_rows(current_path, table)
+        upl = _count_rows(uploaded_path, table)
+        if cur is None and upl is None:
+            continue
+        rows.append({
+            'table':    table,
+            'current':  cur if cur is not None else 0,
+            'uploaded': upl if upl is not None else 0,
+            'missing_in_upload': upl is None,
+        })
+    return rows
+
+
+def _table_exists(conn, schema, table):
+    cur = conn.execute(
+        f"SELECT 1 FROM {schema}.sqlite_master WHERE type='table' AND name=?",
+        (table,),
+    )
+    return cur.fetchone() is not None
+
+
+def _replace_master_tables(current_path, uploaded_path):
+    """Replace MASTER tables in current DB with rows from uploaded DB.
+    Transaction tables and anything not in _MASTER_TABLES are untouched.
+
+    Single transaction with FK off during replace; FK integrity checked at end.
+    On any failure, rolls back and raises — current DB unchanged.
+    Returns dict {table: rows_after_replace}.
+    """
+    conn = sqlite3.connect(current_path)
+    try:
+        conn.execute("PRAGMA foreign_keys = OFF")
+        conn.execute("ATTACH DATABASE ? AS upl", (uploaded_path,))
+        replaced = {}
+        skipped = []
+        cur = conn.cursor()
+        cur.execute("BEGIN")
+        try:
+            for table in _MASTER_TABLES:
+                if not _table_exists(conn, 'main', table):
+                    skipped.append((table, 'missing in current DB'))
+                    continue
+                if not _table_exists(conn, 'upl', table):
+                    skipped.append((table, 'missing in uploaded DB'))
+                    continue
+                cur.execute(f"DELETE FROM main.{table}")
+                cur.execute(f"INSERT INTO main.{table} SELECT * FROM upl.{table}")
+                cur.execute(f"SELECT COUNT(*) FROM main.{table}")
+                replaced[table] = cur.fetchone()[0]
+            # Verify FK integrity before commit
+            violations = cur.execute("PRAGMA foreign_key_check").fetchall()
+            if violations:
+                conn.rollback()
+                raise RuntimeError(
+                    f"FK violations after replace ({len(violations)} total). "
+                    f"Sample: {violations[:5]}. No changes applied."
+                )
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except sqlite3.OperationalError:
+                pass
+            raise
+        return replaced, skipped
+    finally:
+        try:
+            conn.execute("DETACH DATABASE upl")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("PRAGMA foreign_keys = ON")
+        except sqlite3.OperationalError:
+            pass
+        conn.close()
+
+
 @app.route('/admin/upload-db', methods=['GET', 'POST'])
 def upload_db():
     if session.get('role') != 'admin':
@@ -383,6 +498,47 @@ def upload_db():
         tmp = tempfile.mktemp(suffix='.db')
         f.save(tmp)
 
+        mode = request.form.get('mode', 'master_only')
+
+        # Master-only mode: replace MASTER tables, preserve transaction tables
+        if mode == 'master_only':
+            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+            backup_dir = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), '..', 'data', 'backups')
+            )
+            os.makedirs(backup_dir, exist_ok=True)
+            backup_path = os.path.join(backup_dir, f'inventory-pre-master-upload-{ts}.db')
+            try:
+                shutil.copy(config.DATABASE_PATH, backup_path)
+            except FileNotFoundError:
+                backup_path = None
+
+            try:
+                replaced, skipped = _replace_master_tables(config.DATABASE_PATH, tmp)
+            except Exception as e:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+                flash(f'Master-only upload ล้มเหลว: {e}. DB ปัจจุบันไม่ถูกแก้ไข', 'danger')
+                return redirect(url_for('upload_db'))
+
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+            n = sum(replaced.values())
+            msg = (f'Master-only upload สำเร็จ — แทนที่ {len(replaced)} ตาราง '
+                   f'({n} rows). Transaction tables ของ prod ยังเหมือนเดิม.')
+            if backup_path:
+                msg += f' Backup: {os.path.basename(backup_path)}'
+            if skipped:
+                msg += f' [skipped {len(skipped)}: {[t for t,_ in skipped[:3]]}]'
+            flash(msg, 'success')
+            return redirect(url_for('dashboard'))
+
+        # Full-replace mode (legacy): existing diff-check + warn flow
         diff_rows = _diff_db_row_counts(config.DATABASE_PATH, tmp)
         warnings = [d for d in diff_rows if d['warning']]
         confirmed = request.form.get('confirm') == 'yes'
