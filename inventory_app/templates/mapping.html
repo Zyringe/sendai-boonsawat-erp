@@ -78,7 +78,12 @@
               {% for b in brands %}
               <option value="{{ b.id }}" {% if b.id == s.brand_id %}selected{% endif %}>{{ b.name }}{% if b.name_th %} / {{ b.name_th }}{% endif %}</option>
               {% endfor %}
-            </select></div>
+            </select>
+            {% if s.brand_other_name %}
+            <input class="form-control form-control-sm mt-1" id="sug-brand-other-{{ s.id }}"
+                   value="{{ s.brand_other_name }}" placeholder="ชื่อแบรนด์ใหม่ (จะสร้างเมื่อ approve)">
+            {% endif %}
+          </div>
           <div class="col-md-3"><label class="form-label mb-0">Model</label>
             <input class="form-control form-control-sm" id="sug-model-{{ s.id }}" value="{{ s.model or '' }}"></div>
           <div class="col-md-3"><label class="form-label mb-0">Size</label>
@@ -91,22 +96,43 @@
               {% for c in color_codes %}
               <option value="{{ c.code }}" {% if c.code == s.color_code %}selected{% endif %}>{{ c.code }} — {{ c.name_th }}</option>
               {% endfor %}
-            </select></div>
+            </select>
+            {% if s.color_code_other %}
+            <input class="form-control form-control-sm mt-1" id="sug-colorcode-other-{{ s.id }}"
+                   value="{{ s.color_code_other }}" placeholder="color code ใหม่ (จะสร้างเมื่อ approve)">
+            {% endif %}
+          </div>
           <div class="col-md-3"><label class="form-label mb-0">Packaging</label>
             <select class="form-select form-select-sm" id="sug-pkg-{{ s.id }}">
               <option value="">—</option>
               {% for p in ['แผง','ตัว','ถุง','แพ็คหัว','แพ็คถุง','ซอง','อัดแผง','แพ็ค','แบบหลอด','โหล','1กลมี60ใบ'] %}
               <option value="{{ p }}" {% if p == s.packaging %}selected{% endif %}>{{ p }}</option>
               {% endfor %}
-            </select></div>
+            </select>
+            {% if s.packaging_other %}
+            <input class="form-control form-control-sm mt-1" id="sug-pkg-other-{{ s.id }}"
+                   value="{{ s.packaging_other }}" placeholder="packaging อื่น ๆ">
+            {% endif %}
+          </div>
           <div class="col-md-3"><label class="form-label mb-0">Condition</label>
             <input class="form-control form-control-sm" id="sug-cond-{{ s.id }}" value="{{ s.condition or '' }}"></div>
           <div class="col-md-3"><label class="form-label mb-0">Pack variant</label>
             <input class="form-control form-control-sm" id="sug-pv-{{ s.id }}" value="{{ s.pack_variant or '' }}"></div>
           <div class="col-md-3"><label class="form-label mb-0">Cost (initial WACC)</label>
             <input type="number" step="0.01" class="form-control form-control-sm" id="sug-cost-{{ s.id }}" value="{{ s.suggested_cost or 0 }}"></div>
-          <div class="col-md-3"><label class="form-label mb-0">Unit type</label>
+          <div class="col-md-3"><label class="form-label mb-0">Unit type (base)</label>
             <input class="form-control form-control-sm" id="sug-unit-{{ s.id }}" value="{{ s.suggested_unit_type or 'ตัว' }}"></div>
+          {% if s.bsn_unit %}
+          <div class="col-md-6"><label class="form-label mb-0">
+            Unit conversion: 1 <code>{{ s.bsn_unit }}</code> (BSN) =
+          </label>
+            <div class="input-group input-group-sm">
+              <input type="number" step="0.01" class="form-control" id="sug-ratio-{{ s.id }}"
+                     value="{{ s.unit_conversion_ratio or '' }}" placeholder="ratio">
+              <span class="input-group-text">{{ s.suggested_unit_type or 'ตัว' }}</span>
+            </div>
+          </div>
+          {% endif %}
           <div class="col-md-3"><label class="form-label mb-0">Units/carton</label>
             <input type="number" class="form-control form-control-sm" id="sug-upc-{{ s.id }}" value="{{ s.units_per_carton or '' }}"></div>
           <div class="col-md-3"><label class="form-label mb-0">Units/box</label>
@@ -114,7 +140,7 @@
         </div>
 
         <div class="d-flex gap-2 mt-3">
-          <button class="btn btn-success btn-sm" onclick="approveSuggestion({{ s.id }})">
+          <button class="btn btn-success btn-sm" onclick="approveSuggestion({{ s.id }}, {{ 1 if s.bsn_unit else 0 }}, {{ 1 if s.brand_other_name else 0 }}, {{ 1 if s.color_code_other else 0 }}, {{ 1 if s.packaging_other else 0 }})">
             <i class="bi bi-check-circle me-1"></i>อนุมัติ + สร้าง SKU
           </button>
           <span class="text-subtle small ms-auto align-self-center">
@@ -128,7 +154,7 @@
 </div>
 
 <script>
-function approveSuggestion(id) {
+function approveSuggestion(id, hasBsnUnit, hasBrandOther, hasColorOther, hasPkgOther) {
   const v = (key) => {
     const el = document.getElementById('sug-' + key + '-' + id);
     return el ? el.value : null;
@@ -138,17 +164,21 @@ function approveSuggestion(id) {
     category:            v('cat'),
     series:              v('series'),
     brand_id:            v('brand') || null,
+    brand_other_name:    hasBrandOther ? v('brand-other') : null,
     model:               v('model'),
     size:                v('size'),
     color_th:            v('colorth'),
     color_code:          v('colorcode') || null,
+    color_code_other:    hasColorOther ? v('colorcode-other') : null,
     packaging:           v('pkg') || null,
+    packaging_other:     hasPkgOther ? v('pkg-other') : null,
     condition:           v('cond'),
     pack_variant:        v('pv'),
     suggested_cost:      v('cost'),
     suggested_unit_type: v('unit'),
     units_per_carton:    v('upc') || null,
     units_per_box:       v('upb') || null,
+    unit_conversion_ratio: hasBsnUnit ? v('ratio') : null,
   };
 
   fetch('/mapping/suggestions/' + id + '/approve', {
@@ -157,9 +187,6 @@ function approveSuggestion(id) {
     body: JSON.stringify(payload)
   }).then(r => r.json()).then(d => {
     if (d.ok) {
-      const item = document.getElementById('sug-item-' + id);
-      if (item) item.remove();
-      // reload to refresh count badge etc
       window.location.reload();
     } else {
       alert('Error: ' + (d.error || 'unknown'));
@@ -171,7 +198,7 @@ function approveSuggestion(id) {
 {% endif %}
 
 {% else %}
-{# ── Tab 1: Original pending mappings (BSN code → existing/new product) ─ #}
+{# ── Tab 1: Pending mappings — Suggest button only (old dropdown removed) #}
 
 {% if not pending %}
 <div class="card">
@@ -183,19 +210,10 @@ function approveSuggestion(id) {
 </div>
 
 {% else %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <div class="alert alert-warning mb-0 py-2 px-3 small flex-fill me-3">
-    <i class="bi bi-exclamation-triangle me-1"></i>
-    พบ <strong>{{ pending | length }}</strong> รายการที่ยังไม่ผูกรหัส BSN กับสินค้าในระบบ
-  </div>
-  {% if is_admin %}
-  <div class="d-flex gap-2">
-    <button class="btn btn-sm btn-outline-secondary" onclick="setAllAction('ignore')">ข้ามทั้งหมด</button>
-    <button id="btnSave" class="btn btn-primary btn-sm" onclick="saveAll()">
-      <i class="bi bi-check-circle me-1"></i>บันทึก
-    </button>
-  </div>
-  {% endif %}
+<div class="alert alert-warning py-2 px-3 small mb-3">
+  <i class="bi bi-exclamation-triangle me-1"></i>
+  พบ <strong>{{ pending | length }}</strong> รายการที่ยังไม่ผูกรหัส BSN —
+  คลิก <strong>🤖 Suggest</strong> เพื่อเลือก: ผูกของเดิม / ส่งสร้างใหม่ / ข้าม
 </div>
 
 <div class="card">
@@ -205,8 +223,7 @@ function approveSuggestion(id) {
         <tr>
           <th style="width:130px">รหัส BSN</th>
           <th>ชื่อสินค้าใน BSN</th>
-          <th style="width:220px">การดำเนินการ</th>
-          <th style="min-width:280px">ผูกกับ / ชื่อใหม่</th>
+          <th style="width:140px" class="text-end">Action</th>
         </tr>
       </thead>
       <tbody>
@@ -214,25 +231,12 @@ function approveSuggestion(id) {
         <tr id="row-{{ loop.index }}" data-code="{{ item.bsn_code }}" data-name="{{ item.bsn_name }}">
           <td><span class="badge badge-gray font-mono">{{ item.bsn_code }}</span></td>
           <td class="fw-500">{{ item.bsn_name }}</td>
-          <td>
-            <div class="d-flex gap-1">
-              <button class="btn btn-sm btn-outline-primary" type="button"
-                      onclick="openSuggest({{ loop.index }}, '{{ item.bsn_code }}')"
-                      title="เปิด smart-suggest modal">
-                <i class="bi bi-stars"></i> Suggest
-              </button>
-              <select class="form-select form-select-sm action-select"
-                      onchange="onActionChange(this, {{ loop.index }})">
-                <option value="">— เลือก —</option>
-                <option value="map">ผูกกับสินค้าที่มีอยู่</option>
-                {% if is_admin %}
-                <option value="new">สร้างสินค้าใหม่ (เร็ว)</option>
-                {% endif %}
-                <option value="ignore">ข้าม / ไม่ใช้</option>
-              </select>
-            </div>
+          <td class="text-end">
+            <button class="btn btn-sm btn-primary" type="button"
+                    onclick="openSuggest({{ loop.index }}, '{{ item.bsn_code }}')">
+              <i class="bi bi-stars"></i> Suggest
+            </button>
           </td>
-          <td id="detail-{{ loop.index }}"></td>
         </tr>
         {% endfor %}
       </tbody>
@@ -253,35 +257,53 @@ function approveSuggestion(id) {
           <span class="spinner-border spinner-border-sm me-2"></span>กำลังประมวลผล...
         </div>
         <div id="sm-content" style="display:none">
-          <div class="text-subtle small mb-2">BSN: <span id="sm-bsn-name" class="fw-500"></span></div>
+          <div class="text-subtle small mb-2">
+            BSN: <span id="sm-bsn-name" class="fw-500"></span>
+            <span id="sm-bsn-unit-info" class="ms-2 text-muted"></span>
+          </div>
 
-          {# Section A — match existing #}
+          {# ── Card A — match existing ─────────────────────── #}
           <div class="card mb-3">
-            <div class="card-header py-2">
+            <div class="card-header py-2 bg-light">
               <i class="bi bi-search me-1"></i><strong>(A) ผูกกับสินค้าเดิม</strong>
-              <span class="text-subtle small">(top fuzzy matches — ⭐ คือ ≥70%)</span>
+              <span class="text-subtle small">— ⭐ คือ ≥70% likely match</span>
             </div>
             <div class="card-body p-2">
-              <div id="sm-matches"></div>
-              <div class="mt-2">
-                <label class="form-label small mb-1 text-subtle">หรือเลือกจาก dropdown ของสินค้าทั้งหมด:</label>
-                <select id="sm-product-dropdown" class="form-select form-select-sm">
-                  <option value="">— เลือกสินค้า —</option>
-                  {% for p in all_products %}
-                  <option value="{{ p.id }}">{{ p.sku }} — {{ p.product_name }}</option>
-                  {% endfor %}
-                </select>
-                <button class="btn btn-success btn-sm mt-2" onclick="confirmExistingMap()">
-                  <i class="bi bi-link-45deg me-1"></i>ผูกกับสินค้านี้
-                </button>
+              <div id="sm-matches" class="mb-2"></div>
+              <label class="form-label small mb-1 text-subtle">หรือพิมพ์ค้นหาจากสินค้าทั้งหมด:</label>
+              <div class="ac-wrap">
+                <input type="text" id="sm-product-search" class="form-control form-control-sm"
+                       placeholder="พิมพ์ SKU หรือชื่อสินค้า..." autocomplete="off">
+                <input type="hidden" id="sm-product-id">
+                <input type="hidden" id="sm-product-unit">
+                <div class="ac-drop" id="sm-product-drop"></div>
               </div>
+
+              {# Unit conversion at map-time (if BSN unit ≠ selected product unit) #}
+              <div id="sm-mapconv" class="mt-2" style="display:none">
+                <label class="form-label small mb-1 text-warning">
+                  <i class="bi bi-info-circle"></i> หน่วย BSN กับสินค้าไม่ตรงกัน — ระบุ ratio:
+                </label>
+                <div class="input-group input-group-sm">
+                  <span class="input-group-text">1</span>
+                  <span class="input-group-text" id="sm-mapconv-bsn-unit">ซอง</span>
+                  <span class="input-group-text">=</span>
+                  <input type="number" step="0.01" class="form-control" id="sm-mapconv-ratio" placeholder="เช่น 50">
+                  <span class="input-group-text" id="sm-mapconv-prod-unit">ดอก</span>
+                </div>
+              </div>
+
+              <button class="btn btn-success btn-sm mt-2" onclick="confirmExistingMap()">
+                <i class="bi bi-link-45deg me-1"></i>ผูกกับสินค้านี้
+              </button>
             </div>
           </div>
 
-          {# Section B — stage new SKU for review #}
-          <div class="card">
-            <div class="card-header py-2">
-              <i class="bi bi-plus-circle me-1"></i><strong>(B) ส่งสร้าง SKU ใหม่ (รอ manager review)</strong>
+          {# ── Card B — stage new SKU ──────────────────────── #}
+          <div class="card mb-3">
+            <div class="card-header py-2 bg-light">
+              <i class="bi bi-plus-circle me-1"></i><strong>(B) ส่งสร้าง SKU ใหม่</strong>
+              <span class="text-subtle small">— manager review ก่อน auto-create</span>
             </div>
             <div class="card-body">
               <div class="row g-2 small">
@@ -291,50 +313,92 @@ function approveSuggestion(id) {
                   <input class="form-control form-control-sm" id="sm-cat"></div>
                 <div class="col-md-4"><label class="form-label mb-0">Series</label>
                   <input class="form-control form-control-sm" id="sm-series"></div>
-                <div class="col-md-4"><label class="form-label mb-0">Brand</label>
+                <div class="col-md-4"><label class="form-label mb-0">
+                  Brand
+                  <a href="#" class="ms-1 small" onclick="toggleOther('brand'); return false;">[+ พิมพ์เอง]</a>
+                </label>
                   <select class="form-select form-select-sm" id="sm-brand">
                     <option value="">— ไม่ระบุ —</option>
                     {% for b in brands %}
                     <option value="{{ b.id }}">{{ b.name }}{% if b.name_th %} / {{ b.name_th }}{% endif %}</option>
                     {% endfor %}
-                  </select></div>
+                  </select>
+                  <input class="form-control form-control-sm mt-1" id="sm-brand-other"
+                         placeholder="ชื่อแบรนด์ใหม่" style="display:none"></div>
+
                 <div class="col-md-3"><label class="form-label mb-0">Model</label>
                   <input class="form-control form-control-sm" id="sm-model"></div>
                 <div class="col-md-3"><label class="form-label mb-0">Size</label>
                   <input class="form-control form-control-sm" id="sm-size"></div>
                 <div class="col-md-3"><label class="form-label mb-0">สี (Thai)</label>
                   <input class="form-control form-control-sm" id="sm-colorth"></div>
-                <div class="col-md-3"><label class="form-label mb-0">Color code</label>
+                <div class="col-md-3"><label class="form-label mb-0">
+                  Color code
+                  <a href="#" class="ms-1 small" onclick="toggleOther('colorcode'); return false;">[+ พิมพ์เอง]</a>
+                </label>
                   <select class="form-select form-select-sm" id="sm-colorcode">
                     <option value="">—</option>
                     {% for c in color_codes %}
                     <option value="{{ c.code }}">{{ c.code }} — {{ c.name_th }}</option>
                     {% endfor %}
-                  </select></div>
-                <div class="col-md-3"><label class="form-label mb-0">Packaging</label>
+                  </select>
+                  <input class="form-control form-control-sm mt-1" id="sm-colorcode-other"
+                         placeholder="color code ใหม่" style="display:none"></div>
+
+                <div class="col-md-3"><label class="form-label mb-0">
+                  Packaging
+                  <a href="#" class="ms-1 small" onclick="toggleOther('pkg'); return false;">[+ พิมพ์เอง]</a>
+                </label>
                   <select class="form-select form-select-sm" id="sm-pkg">
                     <option value="">—</option>
                     {% for p in ['แผง','ตัว','ถุง','แพ็คหัว','แพ็คถุง','ซอง','อัดแผง','แพ็ค','แบบหลอด','โหล','1กลมี60ใบ'] %}
                     <option value="{{ p }}">{{ p }}</option>
                     {% endfor %}
-                  </select></div>
+                  </select>
+                  <input class="form-control form-control-sm mt-1" id="sm-pkg-other"
+                         placeholder="packaging อื่น ๆ" style="display:none"></div>
                 <div class="col-md-3"><label class="form-label mb-0">Condition</label>
                   <input class="form-control form-control-sm" id="sm-cond"></div>
                 <div class="col-md-3"><label class="form-label mb-0">Pack variant</label>
                   <input class="form-control form-control-sm" id="sm-pv"></div>
                 <div class="col-md-3"><label class="form-label mb-0">Cost (initial WACC)</label>
                   <input type="number" step="0.01" class="form-control form-control-sm" id="sm-cost"></div>
-                <div class="col-md-3"><label class="form-label mb-0">Unit type</label>
-                  <input class="form-control form-control-sm" id="sm-unit"></div>
+
+                <div class="col-md-3"><label class="form-label mb-0">Unit type (base/finest)</label>
+                  <input class="form-control form-control-sm" id="sm-unit" placeholder="เช่น ตัว"></div>
+                <div class="col-md-9" id="sm-bunit-row"><label class="form-label mb-0 text-warning">
+                  <i class="bi bi-info-circle"></i> หน่วยจาก BSN ≠ Unit type — ระบุ ratio:
+                </label>
+                  <div class="input-group input-group-sm">
+                    <span class="input-group-text">1</span>
+                    <span class="input-group-text" id="sm-bunit">ซอง</span>
+                    <span class="input-group-text">=</span>
+                    <input type="number" step="0.01" class="form-control" id="sm-ratio" placeholder="เช่น 50">
+                    <span class="input-group-text" id="sm-base-unit-display">ดอก</span>
+                  </div>
+                  <div class="form-text small">เว้นว่างได้ ถ้าหน่วย BSN ตรงกับ Unit type</div>
+                </div>
               </div>
-              <div class="mt-2 d-flex gap-2">
+              <div class="mt-3 d-flex gap-2">
                 <button class="btn btn-warning btn-sm" onclick="confirmStageNew()">
                   <i class="bi bi-clipboard-plus me-1"></i>ส่งให้ manager review
                 </button>
-                <span class="text-subtle small align-self-center ms-auto">
-                  ระบบจะรอ admin/manager กดอนุมัติในแท็บ "อนุมัติ SKU ใหม่"
-                </span>
               </div>
+            </div>
+          </div>
+
+          {# ── Card C — skip with reason ─────────────────── #}
+          <div class="card">
+            <div class="card-header py-2 bg-light">
+              <i class="bi bi-x-circle me-1"></i><strong>(C) ข้าม / ไม่ใช้</strong>
+              <span class="text-subtle small">— BSN code นี้ไม่ใช่ stock (เช่น ค่าใช้จ่าย, ซ้ำ)</span>
+            </div>
+            <div class="card-body p-2">
+              <input class="form-control form-control-sm" id="sm-ignore-reason"
+                     placeholder="เหตุผล (เช่น ค่าขนส่ง, ค่าจ้างเหมา, รหัสซ้ำ)">
+              <button class="btn btn-secondary btn-sm mt-2" onclick="confirmIgnore()">
+                <i class="bi bi-x-circle me-1"></i>ข้าม BSN code นี้
+              </button>
             </div>
           </div>
         </div>
@@ -355,7 +419,6 @@ function approveSuggestion(id) {
 .ac-item:hover { background: var(--accent-light); }
 .ac-sku { font-family: 'SF Mono','Fira Code',monospace; font-size: .72rem; background: #f1f5f9;
           color: #475569; padding: 1px 5px; border-radius: 4px; white-space: nowrap; flex-shrink: 0; }
-.ac-selected { border-color: var(--accent) !important; box-shadow: 0 0 0 3px rgba(99,102,241,.12) !important; }
 .match-row { padding:6px 8px; border:1px solid #e5e7eb; border-radius:4px; margin-bottom:4px;
              cursor:pointer; display:flex; align-items:center; gap:8px; font-size:.85rem; }
 .match-row:hover { background: var(--accent-light); border-color: var(--accent); }
@@ -364,26 +427,35 @@ function approveSuggestion(id) {
 </style>
 
 <script>
-const nextSku = {{ next_sku }};
 const allProducts = [
   {% for p in all_products %}
-  { id: {{ p.id }}, sku: {{ p.sku }}, name: {{ p.product_name | tojson }} },
+  { id: {{ p.id }}, sku: {{ p.sku }}, name: {{ p.product_name | tojson }}, unit_type: {{ (p.unit_type or 'ตัว') | tojson }} },
   {% endfor %}
 ];
 
-let _smCurrentBsn = null;        // active BSN code in modal
+let _smCurrentBsn = null;
 let _smCurrentName = null;
-let _smSelectedExistingId = null;  // selected existing product_id
+let _smBsnUnit = null;     // unit from latest_purchase
 
 function openSuggest(idx, bsnCode) {
   _smCurrentBsn = bsnCode;
-  _smSelectedExistingId = null;
   const row = document.getElementById('row-' + idx);
   _smCurrentName = row.dataset.name;
   document.getElementById('sm-bsn-code').textContent = bsnCode;
   document.getElementById('sm-bsn-name').textContent = _smCurrentName;
   document.getElementById('sm-loading').style.display = 'block';
   document.getElementById('sm-content').style.display = 'none';
+
+  // Reset modal state
+  document.getElementById('sm-product-id').value = '';
+  document.getElementById('sm-product-unit').value = '';
+  document.getElementById('sm-product-search').value = '';
+  document.getElementById('sm-mapconv').style.display = 'none';
+  document.getElementById('sm-mapconv-ratio').value = '';
+  ['brand','colorcode','pkg'].forEach(k => {
+    const o = document.getElementById('sm-' + k + '-other');
+    if (o) { o.value = ''; o.style.display = 'none'; }
+  });
 
   const modal = new bootstrap.Modal(document.getElementById('suggestModal'));
   modal.show();
@@ -398,14 +470,19 @@ function populateSuggestModal(data) {
   document.getElementById('sm-loading').style.display = 'none';
   document.getElementById('sm-content').style.display = 'block';
 
-  // Top matches
+  const lp = data.latest_purchase || {};
+  _smBsnUnit = lp.unit_type || null;
+  document.getElementById('sm-bsn-unit-info').textContent =
+    _smBsnUnit ? '(BSN unit: ' + _smBsnUnit + ', last cost: ฿' + (lp.cost_price || 0) + ')' : '';
+
+  // Card A — top fuzzy matches
   const matchesEl = document.getElementById('sm-matches');
   if (data.matches && data.matches.length) {
     matchesEl.innerHTML = data.matches.map(m => {
       const cls = m.is_likely ? 'likely' : '';
       const star = m.is_likely ? '⭐ ' : '';
       const pct = (m.score * 100).toFixed(0);
-      return `<div class="match-row ${cls}" data-pid="${m.product_id}" onclick="pickMatch(this)">
+      return `<div class="match-row ${cls}" data-pid="${m.product_id}" data-unit="${m.unit_type}" onclick="pickMatch(this)">
         ${star}<span class="ac-sku">${m.sku}</span>
         <span class="flex-fill">${m.product_name}</span>
         <span class="text-subtle small">${pct}%</span>
@@ -415,7 +492,7 @@ function populateSuggestModal(data) {
     matchesEl.innerHTML = '<div class="text-subtle small">ไม่พบสินค้าที่คล้ายในระบบ</div>';
   }
 
-  // Section B (new SKU form prefill)
+  // Card B — prefill
   const p = data.parsed || {};
   document.getElementById('sm-name').value     = data.proposed_name || data.bsn_name || '';
   document.getElementById('sm-cat').value      = p.category || '';
@@ -428,32 +505,132 @@ function populateSuggestModal(data) {
   document.getElementById('sm-pkg').value      = p.packaging || '';
   document.getElementById('sm-cond').value     = p.condition || '';
   document.getElementById('sm-pv').value       = p.pack_variant || '';
-  const lp = data.latest_purchase || {};
   document.getElementById('sm-cost').value     = lp.cost_price || 0;
-  document.getElementById('sm-unit').value     = lp.unit_type || 'ตัว';
+  document.getElementById('sm-unit').value     = 'ตัว';  // default base unit
+  document.getElementById('sm-bunit').textContent = _smBsnUnit || '?';
+  document.getElementById('sm-base-unit-display').textContent = 'ตัว';
+  document.getElementById('sm-ignore-reason').value = '';
+
+  refreshUnitConvVisibility();
 }
+
+function refreshUnitConvVisibility() {
+  // Show ratio row in Card B only when BSN unit ≠ Card B's unit_type
+  const baseUnit = (document.getElementById('sm-unit').value || 'ตัว').trim();
+  document.getElementById('sm-base-unit-display').textContent = baseUnit;
+  const row = document.getElementById('sm-bunit-row');
+  if (_smBsnUnit && _smBsnUnit !== baseUnit) row.style.display = '';
+  else row.style.display = 'none';
+}
+document.addEventListener('input', e => {
+  if (e.target.id === 'sm-unit') refreshUnitConvVisibility();
+});
 
 function pickMatch(el) {
   document.querySelectorAll('.match-row').forEach(r => r.classList.remove('selected'));
   el.classList.add('selected');
-  _smSelectedExistingId = el.dataset.pid;
-  document.getElementById('sm-product-dropdown').value = el.dataset.pid;
+  const pid = el.dataset.pid;
+  const punit = el.dataset.unit || 'ตัว';
+  document.getElementById('sm-product-id').value = pid;
+  document.getElementById('sm-product-unit').value = punit;
+  document.getElementById('sm-product-search').value =
+    el.querySelector('.ac-sku').textContent + ' — ' + el.querySelector('.flex-fill').textContent;
+  refreshMapConvVisibility(punit);
+}
+
+function refreshMapConvVisibility(productUnit) {
+  const row = document.getElementById('sm-mapconv');
+  if (_smBsnUnit && productUnit && _smBsnUnit !== productUnit) {
+    document.getElementById('sm-mapconv-bsn-unit').textContent = _smBsnUnit;
+    document.getElementById('sm-mapconv-prod-unit').textContent = productUnit;
+    row.style.display = '';
+  } else {
+    row.style.display = 'none';
+  }
+}
+
+/* ── Searchable autocomplete in Card A ── */
+(function setupSearchAutocomplete() {
+  const input = document.getElementById('sm-product-search');
+  const drop  = document.getElementById('sm-product-drop');
+  if (!input) return;
+  function render(q) {
+    const hits = q
+      ? allProducts.filter(p => (String(p.sku) + ' ' + p.name).toLowerCase().includes(q.toLowerCase())).slice(0, 60)
+      : allProducts.slice(0, 60);
+    drop.innerHTML = hits.length
+      ? hits.map(p => {
+          const div = document.createElement('div');
+          div.className = 'ac-item';
+          div.dataset.id    = p.id;
+          div.dataset.unit  = p.unit_type || 'ตัว';
+          div.dataset.label = p.sku + ' — ' + p.name;
+          div.innerHTML = `<span class="ac-sku">${p.sku}</span><span>${p.name}</span>`;
+          return div.outerHTML;
+        }).join('')
+      : '<div class="ac-item text-subtle">ไม่พบสินค้า</div>';
+  }
+  function open() {
+    const rect = input.getBoundingClientRect();
+    drop.style.left = rect.left + 'px';
+    drop.style.top = (rect.bottom + 2) + 'px';
+    drop.style.width = Math.max(rect.width, 260) + 'px';
+    drop.classList.add('open');
+  }
+  drop.addEventListener('mousedown', e => {
+    const item = e.target.closest('.ac-item[data-id]');
+    if (!item) return;
+    e.preventDefault();
+    input.value = item.dataset.label;
+    document.getElementById('sm-product-id').value = item.dataset.id;
+    document.getElementById('sm-product-unit').value = item.dataset.unit;
+    drop.classList.remove('open');
+    refreshMapConvVisibility(item.dataset.unit);
+  });
+  input.addEventListener('input', () => {
+    document.getElementById('sm-product-id').value = '';
+    render(input.value); open();
+    document.getElementById('sm-mapconv').style.display = 'none';
+  });
+  input.addEventListener('focus', () => { render(input.value); open(); });
+  input.addEventListener('blur', () => { setTimeout(() => drop.classList.remove('open'), 200); });
+})();
+
+function toggleOther(prefix) {
+  const sel = document.getElementById('sm-' + prefix);
+  const inp = document.getElementById('sm-' + prefix + '-other');
+  if (inp.style.display === 'none') {
+    inp.style.display = '';
+    sel.value = '';
+  } else {
+    inp.style.display = 'none';
+    inp.value = '';
+  }
 }
 
 function confirmExistingMap() {
-  let pid = _smSelectedExistingId;
-  if (!pid) pid = document.getElementById('sm-product-dropdown').value;
+  const pid = document.getElementById('sm-product-id').value;
   if (!pid) { alert('กรุณาเลือกสินค้าก่อน'); return; }
-  saveSingle({
+  const entry = {
     bsn_code: _smCurrentBsn,
     bsn_name: _smCurrentName,
     action: 'map',
     product_id: pid,
-  });
+  };
+  const ratio = document.getElementById('sm-mapconv-ratio').value;
+  if (_smBsnUnit && ratio && parseFloat(ratio) > 0) {
+    entry.bsn_unit = _smBsnUnit;
+    entry.unit_conversion_ratio = ratio;
+  }
+  saveSingle(entry);
 }
 
 function confirmStageNew() {
   const v = (id) => document.getElementById('sm-' + id).value;
+  const isVisible = (id) => {
+    const el = document.getElementById('sm-' + id);
+    return el && el.style.display !== 'none';
+  };
   const payload = {
     bsn_code: _smCurrentBsn,
     bsn_name: _smCurrentName,
@@ -462,17 +639,35 @@ function confirmStageNew() {
     category: v('cat'),
     series: v('series'),
     brand_id: v('brand') || null,
+    brand_other_name: isVisible('brand-other') ? v('brand-other') : null,
     model: v('model'),
     size: v('size'),
     color_th: v('colorth'),
     color_code: v('colorcode') || null,
+    color_code_other: isVisible('colorcode-other') ? v('colorcode-other') : null,
     packaging: v('pkg') || null,
+    packaging_other: isVisible('pkg-other') ? v('pkg-other') : null,
     condition: v('cond'),
     pack_variant: v('pv'),
     suggested_cost: parseFloat(v('cost') || 0),
     suggested_unit_type: v('unit') || 'ตัว',
+    bsn_unit: _smBsnUnit,
+    unit_conversion_ratio: v('ratio') || null,
   };
   saveSingle(payload);
+}
+
+function confirmIgnore() {
+  const reason = document.getElementById('sm-ignore-reason').value.trim();
+  if (!reason) {
+    if (!confirm('ไม่ระบุเหตุผล — ข้ามต่อ?')) return;
+  }
+  saveSingle({
+    bsn_code: _smCurrentBsn,
+    bsn_name: _smCurrentName,
+    action: 'ignore',
+    ignore_reason: reason || null,
+  });
 }
 
 function saveSingle(entry) {
@@ -485,134 +680,6 @@ function saveSingle(entry) {
       window.location.reload();
     } else {
       alert('Save failed');
-    }
-  });
-}
-
-/* ── Action select (legacy) ── */
-function buildDrop(idx) {
-  const detail = document.getElementById('detail-' + idx);
-  detail.innerHTML = `
-    <div class="ac-wrap">
-      <input type="text" id="ac-input-${idx}" class="form-control form-control-sm"
-             placeholder="พิมพ์ SKU หรือชื่อสินค้า..." autocomplete="off">
-      <input type="hidden" id="ac-id-${idx}">
-      <div class="ac-drop" id="ac-drop-${idx}"></div>
-    </div>`;
-  const input = document.getElementById('ac-input-' + idx);
-  const drop  = document.getElementById('ac-drop-' + idx);
-  function renderItems(q) {
-    const hits = q
-      ? allProducts.filter(p => (String(p.sku) + ' ' + p.name).toLowerCase().includes(q.toLowerCase())).slice(0, 60)
-      : allProducts.slice(0, 60);
-    drop.innerHTML = hits.length
-      ? hits.map(p => {
-          const label = p.sku + ' — ' + p.name;
-          const div = document.createElement('div');
-          div.className = 'ac-item';
-          div.dataset.id    = p.id;
-          div.dataset.label = label;
-          div.innerHTML = `<span class="ac-sku">${p.sku}</span><span>${p.name}</span>`;
-          return div.outerHTML;
-        }).join('')
-      : '<div class="ac-item text-subtle">ไม่พบสินค้า</div>';
-  }
-  function openDrop() {
-    const rect = input.getBoundingClientRect();
-    const dropH = 220;
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const w = Math.max(rect.width, 260);
-    drop.style.left  = rect.left + 'px';
-    drop.style.width = w + 'px';
-    if (spaceBelow < dropH && rect.top > dropH) {
-      drop.style.top = 'auto'; drop.style.bottom = (window.innerHeight - rect.top + 2) + 'px';
-    } else {
-      drop.style.bottom = 'auto'; drop.style.top = (rect.bottom + 2) + 'px';
-    }
-    drop.classList.add('open');
-  }
-  drop.addEventListener('mousedown', function(e) {
-    const item = e.target.closest('.ac-item[data-id]');
-    if (!item) return;
-    e.preventDefault();
-    input.value = item.dataset.label;
-    input.classList.add('ac-selected');
-    document.getElementById('ac-id-' + idx).value = item.dataset.id;
-    drop.classList.remove('open');
-  });
-  input.addEventListener('input', function() {
-    input.classList.remove('ac-selected');
-    document.getElementById('ac-id-' + idx).value = '';
-    renderItems(this.value); openDrop();
-  });
-  input.addEventListener('focus', function() { renderItems(this.value); openDrop(); });
-  input.addEventListener('blur', function() { setTimeout(() => drop.classList.remove('open'), 200); });
-}
-
-function onActionChange(sel, idx) {
-  const action = sel.value;
-  const row    = document.getElementById('row-' + idx);
-  const detail = document.getElementById('detail-' + idx);
-  const name   = row.dataset.name;
-  if (action === 'map') {
-    buildDrop(idx);
-  } else if (action === 'new') {
-    let offset = 0;
-    document.querySelectorAll('.action-select').forEach((s, i) => {
-      if (i + 1 < idx && s.value === 'new') offset++;
-    });
-    const sku = nextSku + offset;
-    detail.innerHTML = `
-      <div class="d-flex gap-1">
-        <input type="number" class="form-control form-control-sm font-mono"
-               id="new-sku-${idx}" value="${sku}" style="max-width:90px" placeholder="SKU">
-        <input type="text" class="form-control form-control-sm" id="new-name-${idx}"
-               placeholder="ชื่อสินค้าใหม่" value="${name.replace(/"/g,'&quot;')}">
-      </div>`;
-  } else {
-    detail.innerHTML = '';
-  }
-}
-
-function setAllAction(action) {
-  document.querySelectorAll('.action-select').forEach((sel, i) => {
-    sel.value = action;
-    onActionChange(sel, i + 1);
-  });
-}
-
-function saveAll() {
-  const rows = document.querySelectorAll('#mappingTable tbody tr');
-  const mappings = [];
-  let valid = true;
-  rows.forEach((row, i) => {
-    const idx = i + 1;
-    const action = row.querySelector('.action-select').value;
-    if (!action) return;
-    const entry = { bsn_code: row.dataset.code, bsn_name: row.dataset.name, action };
-    if (action === 'map') {
-      const pid = document.getElementById('ac-id-' + idx);
-      if (!pid || !pid.value) { alert('กรุณาเลือกสินค้าสำหรับ: ' + row.dataset.name); valid = false; return; }
-      entry.product_id = pid.value;
-    } else if (action === 'new') {
-      entry.new_name = (document.getElementById('new-name-' + idx) || {}).value || row.dataset.name;
-      entry.new_sku  = (document.getElementById('new-sku-' + idx) || {}).value || '';
-    }
-    mappings.push(entry);
-  });
-  if (!valid || !mappings.length) return;
-  const btn = document.getElementById('btnSave');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>กำลังบันทึก...';
-  fetch('{{ url_for("mapping_save") }}', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mappings })
-  }).then(r => r.json()).then(d => {
-    if (d.ok) {
-      window.location.href = d.pending_left > 0 ? window.location.pathname : '{{ url_for("sales_view") }}';
-    } else {
-      window.location.reload();
     }
   });
 }

@@ -945,8 +945,18 @@ def mapping_save():
         bsn_code = item.get('bsn_code')
         action   = item.get('action')       # 'map', 'new', 'ignore', 'stage'
         if action == 'map':
-            models.upsert_mapping(bsn_code, item['bsn_name'],
-                                  product_id=int(item['product_id']))
+            pid = int(item['product_id'])
+            models.upsert_mapping(bsn_code, item['bsn_name'], product_id=pid)
+            # Optional: capture unit_conversion at map time when BSN unit ≠ product unit
+            bsn_unit = (item.get('bsn_unit') or '').strip()
+            ratio = item.get('unit_conversion_ratio')
+            if bsn_unit and ratio:
+                try:
+                    r = float(ratio)
+                except (TypeError, ValueError):
+                    r = 0
+                if r > 0:
+                    models.upsert_unit_conversion(pid, bsn_unit, r)
         elif action == 'new':
             # legacy quick-create — admin-only path. Still supported but
             # smart-suggest flow uses 'stage' instead so manager review applies.
@@ -994,10 +1004,23 @@ def mapping_save():
                 'suggested_unit_type': item.get('suggested_unit_type') or 'ตัว',
                 'units_per_carton': item.get('units_per_carton'),
                 'units_per_box': item.get('units_per_box'),
+                # Round-2 extras (mig 037)
+                'brand_other_name': item.get('brand_other_name') or None,
+                'color_code_other': item.get('color_code_other') or None,
+                'packaging_other': item.get('packaging_other') or None,
+                'bsn_unit': item.get('bsn_unit') or None,
+                'unit_conversion_ratio': (
+                    float(item['unit_conversion_ratio'])
+                    if item.get('unit_conversion_ratio') else None
+                ),
             }
             models.save_pending_suggestion(payload, user_id)
         elif action == 'ignore':
-            models.upsert_mapping(bsn_code, item['bsn_name'], is_ignored=1)
+            models.upsert_mapping(
+                bsn_code, item['bsn_name'],
+                is_ignored=1,
+                ignore_reason=item.get('ignore_reason') or None,
+            )
 
     # Backfill product_id on existing unlinked rows
     conn = get_connection()

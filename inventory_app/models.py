@@ -836,16 +836,34 @@ def get_mapping(bsn_code: str):
     return row
 
 
-def upsert_mapping(bsn_code: str, bsn_name: str, product_id=None, is_ignored=0):
+def upsert_mapping(bsn_code: str, bsn_name: str, product_id=None, is_ignored=0,
+                   ignore_reason=None):
     conn = get_connection()
     conn.execute("""
-        INSERT INTO product_code_mapping (bsn_code, bsn_name, product_id, is_ignored)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO product_code_mapping (bsn_code, bsn_name, product_id, is_ignored, ignore_reason)
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(bsn_code) DO UPDATE SET
-            bsn_name   = excluded.bsn_name,
-            product_id = excluded.product_id,
-            is_ignored = excluded.is_ignored
-    """, (bsn_code, bsn_name, product_id, is_ignored))
+            bsn_name      = excluded.bsn_name,
+            product_id    = excluded.product_id,
+            is_ignored    = excluded.is_ignored,
+            ignore_reason = excluded.ignore_reason
+    """, (bsn_code, bsn_name, product_id, is_ignored, ignore_reason))
+    conn.commit()
+    conn.close()
+
+
+def upsert_unit_conversion(product_id: int, bsn_unit: str, ratio: float):
+    """Set unit_conversion ratio for a (product, bsn_unit) pair.
+    UNIQUE constraint on (product_id, bsn_unit) ensures upsert semantics."""
+    if not bsn_unit or not ratio or float(ratio) <= 0:
+        return
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO unit_conversions (product_id, bsn_unit, ratio)
+        VALUES (?, ?, ?)
+        ON CONFLICT(product_id, bsn_unit) DO UPDATE SET
+            ratio = excluded.ratio
+    """, (product_id, bsn_unit, float(ratio)))
     conn.commit()
     conn.close()
 
@@ -3623,18 +3641,28 @@ def get_pending_suggestion(suggestion_id: int):
 
 def save_pending_suggestion(data: dict, user_id: int) -> int:
     """Insert a new staged SKU suggestion. Returns new suggestion id.
-    UPSERT on bsn_code so re-submitting overwrites the prior staged version."""
+    UPSERT on bsn_code so re-submitting overwrites the prior staged version.
+    `data` may include free-text overrides (brand_other_name, color_code_other,
+    packaging_other) and unit-conversion hints (bsn_unit, unit_conversion_ratio)."""
+    # Default any missing extras to None so SQL params bind cleanly
+    for k in ('brand_other_name', 'color_code_other', 'packaging_other',
+              'bsn_unit', 'unit_conversion_ratio'):
+        data.setdefault(k, None)
     conn = get_connection()
     cur = conn.execute("""
         INSERT INTO pending_product_suggestions
           (bsn_code, bsn_name, suggested_name, category, series, brand_id,
            model, size, color_th, color_code, packaging, condition, pack_variant,
            suggested_cost, suggested_unit_type, units_per_carton, units_per_box,
+           brand_other_name, color_code_other, packaging_other,
+           bsn_unit, unit_conversion_ratio,
            suggested_by_user_id, status)
         VALUES
           (:bsn_code, :bsn_name, :suggested_name, :category, :series, :brand_id,
            :model, :size, :color_th, :color_code, :packaging, :condition, :pack_variant,
            :suggested_cost, :suggested_unit_type, :units_per_carton, :units_per_box,
+           :brand_other_name, :color_code_other, :packaging_other,
+           :bsn_unit, :unit_conversion_ratio,
            :suggested_by_user_id, 'pending')
         ON CONFLICT(bsn_code) DO UPDATE SET
             bsn_name = excluded.bsn_name,
@@ -3653,6 +3681,11 @@ def save_pending_suggestion(data: dict, user_id: int) -> int:
             suggested_unit_type = excluded.suggested_unit_type,
             units_per_carton = excluded.units_per_carton,
             units_per_box = excluded.units_per_box,
+            brand_other_name = excluded.brand_other_name,
+            color_code_other = excluded.color_code_other,
+            packaging_other = excluded.packaging_other,
+            bsn_unit = excluded.bsn_unit,
+            unit_conversion_ratio = excluded.unit_conversion_ratio,
             suggested_by_user_id = excluded.suggested_by_user_id,
             status = 'pending'
     """, {**data, 'suggested_by_user_id': user_id})
@@ -3681,6 +3714,40 @@ def approve_pending_suggestion(suggestion_id: int, edits: dict, reviewer_id: int
         # Merge: edits overrides suggestion
         d = dict(sug)
         d.update({k: v for k, v in edits.items() if v is not None})
+
+        # Resolve free-text overrides into FK-target rows where possible.
+        # brand: if brand_other_name set and no brand_id → INSERT new brand row
+        if not d.get('brand_id') and d.get('brand_other_name'):
+            new_brand_name = d['brand_other_name'].strip()
+            if new_brand_name:
+                # Use display name as both code and name
+                code = new_brand_name.upper().replace(' ', '_')[:30]
+                cur = conn.execute(
+                    "INSERT OR IGNORE INTO brands (code, name, name_th, is_own_brand, sort_order)"
+                    " VALUES (?, ?, ?, 0, 100)",
+                    (code, new_brand_name, new_brand_name)
+                )
+                bid = cur.lastrowid or conn.execute(
+                    "SELECT id FROM brands WHERE code = ?", (code,)
+                ).fetchone()[0]
+                d['brand_id'] = bid
+
+        # color: if color_code_other set and no color_code → INSERT new color row
+        if not d.get('color_code') and d.get('color_code_other'):
+            new_code = d['color_code_other'].strip().upper()[:10]
+            color_th = d.get('color_th') or new_code
+            if new_code:
+                conn.execute(
+                    "INSERT OR IGNORE INTO color_finish_codes (code, name_th, sort_order)"
+                    " VALUES (?, ?, 100)",
+                    (new_code, color_th)
+                )
+                d['color_code'] = new_code
+
+        # packaging: free-text override is stored if dropdown empty
+        # (may fail CHECK trigger on products INSERT — admin must extend trigger first)
+        if not d.get('packaging') and d.get('packaging_other'):
+            d['packaging'] = d['packaging_other'].strip()
 
         # next sku
         next_sku = conn.execute(
@@ -3741,6 +3808,18 @@ def approve_pending_suggestion(suggestion_id: int, edits: dict, reviewer_id: int
                    reviewed_at = datetime('now','localtime')
              WHERE id = ?
         """, (reviewer_id, new_pid, suggestion_id))
+
+        # Auto-create unit_conversion if BSN ships in different unit than product
+        bsn_unit = d.get('bsn_unit')
+        ratio = d.get('unit_conversion_ratio')
+        product_unit = d.get('suggested_unit_type') or 'ตัว'
+        if bsn_unit and ratio and float(ratio) > 0 and bsn_unit != product_unit:
+            conn.execute("""
+                INSERT INTO unit_conversions (product_id, bsn_unit, ratio)
+                VALUES (?, ?, ?)
+                ON CONFLICT(product_id, bsn_unit) DO UPDATE SET
+                    ratio = excluded.ratio
+            """, (new_pid, bsn_unit, float(ratio)))
 
         # Backfill product_id on existing unlinked transaction rows
         resolve_pending_mappings(conn)
