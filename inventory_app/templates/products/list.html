@@ -73,14 +73,19 @@
       <tbody>
         {% for p in products %}
         <tr {% if p.is_low %}class="row-low-stock"{% endif %}>
-          <td data-label="SKU" class="td-hide-mobile"><span class="badge badge-gray font-mono">{{ p.sku }}</span></td>
+          <td data-label="SKU" class="td-hide-mobile">
+            <span class="badge badge-gray font-mono">{{ p.sku }}</span>
+            {% if p.sku_code %}
+            <div class="font-mono text-subtle small mt-1" style="font-size:.7rem">{{ p.sku_code }}</div>
+            {% endif %}
+          </td>
           <td class="td-primary">
             <a href="{{ url_for('products.product_detail', product_id=p.id) }}"
                class="text-decoration-none fw-500 text-main">{{ p.product_name }}</a>
             {% if p.is_low %}
               <span class="badge badge-danger ms-1">สต็อกต่ำ</span>
             {% endif %}
-            <span class="d-mobile-only badge badge-gray font-mono ms-2">SKU {{ p.sku }}</span>
+            <span class="d-mobile-only badge badge-gray font-mono ms-2">SKU {{ p.sku }}{% if p.sku_code %} · {{ p.sku_code }}{% endif %}</span>
           </td>
           <td data-label="หน่วย" class="text-center text-subtle">{{ p.unit_type }}</td>
           <td data-label="ราคาขาย" class="text-end text-subtle">{{ p.base_sell_price | fmt_price }}</td>

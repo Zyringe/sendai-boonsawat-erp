@@ -360,6 +360,66 @@ def product_deactivate(product_id):
     return redirect(url_for('products.product_list'))
 
 
+@bp_products.route('/products/<int:product_id>/sku-code', methods=['POST'])
+def product_sku_code_save(product_id):
+    """Manual edit of sku_code. Saving manually sets sku_code_locked=1
+    so future bulk regen doesn't overwrite. Empty value clears + unlocks."""
+    if session.get('role') not in ('admin', 'manager'):
+        abort(403)
+    new_code = (request.form.get('sku_code') or '').strip() or None
+    conn = get_connection()
+    if new_code:
+        # Collision check (excluding self)
+        clash = conn.execute(
+            "SELECT id, sku FROM products WHERE sku_code = ? AND id != ?",
+            (new_code, product_id)
+        ).fetchone()
+        if clash:
+            conn.close()
+            flash(f'sku_code "{new_code}" ถูกใช้แล้วโดย sku #{clash[1]}', 'danger')
+            return redirect(url_for('products.product_detail', product_id=product_id))
+        conn.execute(
+            "UPDATE products SET sku_code = ?, sku_code_locked = 1 WHERE id = ?",
+            (new_code, product_id)
+        )
+        msg = f'บันทึก sku_code = "{new_code}" (ล็อก ป้องกันการ regen)'
+    else:
+        conn.execute(
+            "UPDATE products SET sku_code = NULL, sku_code_locked = 0 WHERE id = ?",
+            (product_id,)
+        )
+        msg = 'ลบ sku_code (unlocked — regen ภายหลังได้)'
+    conn.commit()
+    conn.close()
+    flash(msg, 'success')
+    return redirect(url_for('products.product_detail', product_id=product_id))
+
+
+@bp_products.route('/products/<int:product_id>/regen-sku-code', methods=['POST'])
+def product_regen_sku_code(product_id):
+    """Regenerate sku_code from current structured cols.
+    Admin/manager only. Forces unlock if user explicitly regenerates."""
+    if session.get('role') not in ('admin', 'manager'):
+        abort(403)
+    import sku_code_utils
+    conn = get_connection()
+    old, new = sku_code_utils.regenerate_for_product(conn, product_id)
+    if old is None:
+        conn.close()
+        abort(404)
+    # Reset lock flag — regen explicitly requested overrides any prior lock
+    conn.execute(
+        "UPDATE products SET sku_code_locked = 0 WHERE id = ?", (product_id,)
+    )
+    conn.commit()
+    conn.close()
+    if old == new:
+        flash(f'sku_code = "{new}" (ไม่มีการเปลี่ยนแปลง)', 'info')
+    else:
+        flash(f'Regen sku_code: "{old or "(NULL)"}" → "{new}"', 'success')
+    return redirect(url_for('products.product_detail', product_id=product_id))
+
+
 @bp_products.route('/products/<int:product_id>/trade')
 def product_trade_summary(product_id):
     date_from = request.args.get('date_from') or None

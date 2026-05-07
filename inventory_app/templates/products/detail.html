@@ -127,6 +127,27 @@
           <tbody>
             <tr><td class="text-subtle" style="width:45%">SKU</td>
                 <td><span class="badge badge-gray font-mono">{{ product.sku }}</span></td></tr>
+            <tr><td class="text-subtle">SKU code</td>
+                <td>
+                  {% if product.sku_code %}
+                    <span class="badge {% if product.sku_code_locked %}bg-warning text-dark{% else %}bg-info text-dark{% endif %} font-mono">
+                      {{ product.sku_code }}
+                      {% if product.sku_code_locked %}<i class="bi bi-lock-fill ms-1" title="locked — ไม่ regen อัตโนมัติ"></i>{% endif %}
+                    </span>
+                  {% else %}
+                    <span class="text-subtle">—</span>
+                  {% endif %}
+                  {% if is_admin or is_manager %}
+                  <button type="button" class="btn btn-link btn-sm p-0 ms-1"
+                          data-bs-toggle="modal" data-bs-target="#skuCodeModal" title="แก้ไข sku_code">
+                    <i class="bi bi-pencil-square small"></i>
+                  </button>
+                  {% endif %}
+                </td></tr>
+            {% if product.sub_category %}
+            <tr><td class="text-subtle">ประเภท</td>
+                <td><span class="text-main">{{ product.sub_category }}</span></td></tr>
+            {% endif %}
             <tr>
               <td class="text-subtle">ยี่ห้อ</td>
               <td>
@@ -281,6 +302,48 @@
         update();
       })();
       </script>
+
+      <div class="modal fade" id="skuCodeModal" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="bi bi-tag me-1"></i>SKU Code</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="alert alert-light border small mb-3">
+                <strong>ปัจจุบัน:</strong>
+                <span class="font-mono">{{ product.sku_code or '(ว่าง)' }}</span>
+                {% if product.sku_code_locked %}
+                <span class="badge bg-warning text-dark ms-2"><i class="bi bi-lock-fill"></i> locked</span>
+                {% endif %}
+              </div>
+
+              <form method="post" action="{{ url_for('products.product_sku_code_save', product_id=product.id) }}" class="mb-3">
+                <label class="form-label small">แก้ไขเอง (จะ lock ป้องกัน regen)</label>
+                <div class="input-group input-group-sm">
+                  <input type="text" name="sku_code" class="form-control font-mono"
+                         value="{{ product.sku_code or '' }}" placeholder="เช่น BLT-SD-230-4in-AC">
+                  <button type="submit" class="btn btn-primary"><i class="bi bi-check"></i> Save</button>
+                </div>
+                <div class="form-text small">เว้นว่าง = ลบ + unlock (regen ภายหลังได้)</div>
+              </form>
+
+              <hr>
+
+              <form method="post" action="{{ url_for('products.product_regen_sku_code', product_id=product.id) }}">
+                <p class="small mb-2">
+                  หรือ <strong>regenerate อัตโนมัติ</strong> จาก structured cols (category, brand, model, size, color):
+                </p>
+                <button type="submit" class="btn btn-outline-info btn-sm w-100">
+                  <i class="bi bi-arrow-clockwise me-1"></i>🔄 Regenerate from structured cols
+                </button>
+                <div class="form-text small">จะ unlock + ใช้ค่าใหม่จากระบบ — ทับของเดิม</div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div class="modal fade" id="locationModal" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered modal-sm">
