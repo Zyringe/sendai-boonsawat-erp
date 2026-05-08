@@ -65,23 +65,26 @@ def main():
     """).fetchall()
 
     # Group by (brand_id, model OR sub_category, series, color_code)
-    # color_code + series split families into per-variant cards per user
-    # feedback 2026-05-08:
-    #   - color: 'matrix' was wrong — different colors should be different cards
-    #   - series: e.g. ดจ.สแตนเลส (กล่องดำ / กล่องน้ำเงิน / กล่องแดง / ซอง)
-    #     are shipped as visually distinct sub-families, not one card.
-    # When model is empty, fall back to sub_category (DRB-GL has model='').
+    # Updated 2026-05-08:
+    #   - brand_id NULL allowed: products without brand still cluster by
+    #     sub_category + series (e.g. กลอนขวางชุบซิงค์ 4in/6in have no
+    #     brand but should be one card)
+    #   - color_code split: different colors stay separate cards (per
+    #     earlier feedback on matrix products like ตะปูคอรีต BLK/WHT)
+    #   - series split: e.g. ดจ.สแตนเลส กล่องดำ/น้ำเงิน/แดง separate cards
+    #   - When model is empty, fall back to sub_category
     groups = defaultdict(list)
     for p in products:
-        if not p["brand_id"]:
-            continue
         model_norm = _norm_model(p["model"])
         cluster_key = model_norm or (p["sub_category"] or "").strip()
         if not cluster_key:
             continue
         color = p["color_code"] or ""
         series = (p["series"] or "").strip()
-        key = (p["brand_id"], cluster_key, series, color)
+        # brand_id None → use 0 sentinel so all no-brand products in the same
+        # cluster_key+series+color still group together
+        brand_key = p["brand_id"] or 0
+        key = (brand_key, cluster_key, series, color)
         groups[key].append(dict(p))
 
     rows = []
@@ -93,11 +96,13 @@ def main():
 
         first = members[0]
         # Build family_code: BRAND-MODEL[-SERIES][-COLOR] or BRAND-SC<hash>[-SERIES][-COLOR]
+        # When brand is missing, prefix becomes 'NB' (No-Brand).
         if first['model']:
             cluster_seg = _norm_model(first['model'])
         else:
             cluster_seg = _subcat_to_code(first['sub_category'] or '')
-        family_code = f"{first['brand_short_code']}-{cluster_seg}"
+        brand_short = first['brand_short_code'] or 'NB'
+        family_code = f"{brand_short}-{cluster_seg}"
         if series:
             # Hash series too — Thai chars not ASCII-safe; keep code short+stable
             series_seg = _subcat_to_code(series)[2:6]  # 4-char hex without 'SC' prefix
