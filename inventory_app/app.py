@@ -351,7 +351,6 @@ _MASTER_TABLES = (
     # Product master
     'products',
     'product_families', 'product_images',
-    'product_attributes', 'product_brand_map',
     'product_locations', 'product_barcodes',
     'product_price_tiers',
     # Lookup master
