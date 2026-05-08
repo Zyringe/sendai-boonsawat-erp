@@ -33,6 +33,13 @@ def _norm_segment(s: str) -> str:
     return s
 
 
+PACKAGING_SHORT = {
+    "ตัว": "UN", "แผง": "PN", "ถุง": "BG", "ซอง": "SC", "แพ็ค": "PK",
+    "โหล": "DZ", "แพ็คหัว": "HP", "แพ็คถุง": "PP", "แบบหลอด": "TB",
+    "อัดแผง": "SP", "1กลมี60ใบ": "C60",
+}
+
+
 def build_sku_code(p: dict) -> str:
     parts = []
     if p.get("cat_short_code"):
@@ -45,8 +52,12 @@ def build_sku_code(p: dict) -> str:
         parts.append(_norm_segment(p["size"]))
     if p.get("color_code"):
         parts.append(p["color_code"])
+    if p.get("packaging"):
+        pkg_code = PACKAGING_SHORT.get(p["packaging"])
+        if pkg_code:
+            parts.append(pkg_code)
     if p.get("pack_variant"):
-        parts.append(p["pack_variant"])
+        parts.append(str(p["pack_variant"]))
 
     if not parts:
         return f"INT-{p['sku']}"
@@ -65,7 +76,7 @@ def main():
 
     rows = conn.execute("""
         SELECT p.id, p.sku, p.sku_code, p.sku_code_locked, p.model, p.size,
-               p.color_code, p.pack_variant,
+               p.color_code, p.packaging, p.pack_variant,
                b.short_code AS brand_short_code,
                c.short_code AS cat_short_code
           FROM products p
