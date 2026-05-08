@@ -185,12 +185,15 @@
 
     {# ── Format-specific body ────────────────────────────── #}
     {% if card.display_format == 'size_table' %}
+      {% set has_pkg = card.skus | selectattr('packaging') | list | length > 0 %}
+      {% set has_color = card.skus | selectattr('color_th') | list | length > 0 %}
+      {% set has_size = card.skus | selectattr('size') | list | length > 0 %}
       <table class="cat-table">
         <thead>
           <tr>
             <th>SKU code</th>
-            <th>ขนาด</th>
-            {% set has_pkg = card.skus | selectattr('packaging') | list | length > 0 %}
+            {% if has_size %}<th>ขนาด</th>{% endif %}
+            {% if has_color %}<th>สี</th>{% endif %}
             {% if has_pkg %}<th>หน่วย</th>{% endif %}
             <th class="text-end">ราคา</th>
             <th class="text-end">สต็อก</th>
@@ -200,7 +203,8 @@
         {% for s in card.skus %}
           <tr>
             <td><span class="cat-card-skucode">{{ s.sku_code or '—' }}</span></td>
-            <td>{{ s.size or '—' }}</td>
+            {% if has_size %}<td>{{ s.size or '—' }}</td>{% endif %}
+            {% if has_color %}<td>{{ s.color_th or '—' }}</td>{% endif %}
             {% if has_pkg %}<td>{{ s.packaging or '—' }}</td>{% endif %}
             <td class="price">฿{{ '{:,.0f}'.format(s.base_sell_price or 0) }}</td>
             <td class="text-end">

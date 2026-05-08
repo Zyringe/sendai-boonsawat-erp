@@ -64,14 +64,16 @@ def main():
          WHERE p.is_active = 1
     """).fetchall()
 
-    # Group by (brand_id, model OR sub_category, series, color_code)
-    # Updated 2026-05-08:
-    #   - brand_id NULL allowed: products without brand still cluster by
-    #     sub_category + series (e.g. กลอนขวางชุบซิงค์ 4in/6in have no
-    #     brand but should be one card)
-    #   - color_code split: different colors stay separate cards (per
-    #     earlier feedback on matrix products like ตะปูคอรีต BLK/WHT)
-    #   - series split: e.g. ดจ.สแตนเลส กล่องดำ/น้ำเงิน/แดง separate cards
+    # Group by (brand_id, model OR sub_category, series)
+    # Updated 2026-05-08 (round 3):
+    #   - color_code DROPPED from key: different colors of same model/series
+    #     now stay in ONE card (e.g. ลูกบิด #5588 PB/SB/SB-PB = 1 card with
+    #     color column in the size_table, not 3 cards). Per user catalog
+    #     review request 'apply กับอย่างอื่นด้วย'.
+    #   - brand_id NULL allowed (round 2): products without brand cluster by
+    #     sub_category + series (e.g. กลอนขวางชุบซิงค์ 4in/6in)
+    #   - series KEPT in key: ดจ.สแตนเลส กล่องดำ/น้ำเงิน/แดง stay separate
+    #     since they're physically distinct product lines, not finish options.
     #   - When model is empty, fall back to sub_category
     groups = defaultdict(list)
     for p in products:
@@ -79,24 +81,24 @@ def main():
         cluster_key = model_norm or (p["sub_category"] or "").strip()
         if not cluster_key:
             continue
-        color = p["color_code"] or ""
         series = (p["series"] or "").strip()
-        # brand_id None → use 0 sentinel so all no-brand products in the same
-        # cluster_key+series+color still group together
+        # brand_id None → 0 sentinel so no-brand products still group
         brand_key = p["brand_id"] or 0
-        key = (brand_key, cluster_key, series, color)
+        key = (brand_key, cluster_key, series)
         groups[key].append(dict(p))
 
     rows = []
-    for (brand_id, cluster_key, series, color), members in groups.items():
+    for (brand_id, cluster_key, series), members in groups.items():
         # Skip groups of 1 — they're "single" style. Could still create
         # a family row, but for trip-prep we focus on multi-SKU families.
         if len(members) < 2:
             continue
 
         first = members[0]
-        # Build family_code: BRAND-MODEL[-SERIES][-COLOR] or BRAND-SC<hash>[-SERIES][-COLOR]
+        # Build family_code: BRAND-MODEL[-SERIES] or BRAND-SC<hash>[-SERIES]
         # When brand is missing, prefix becomes 'NB' (No-Brand).
+        # Color no longer in family key — colors stay as columns within the
+        # size_table layout (see template).
         if first['model']:
             cluster_seg = _norm_model(first['model'])
         else:
@@ -104,11 +106,8 @@ def main():
         brand_short = first['brand_short_code'] or 'NB'
         family_code = f"{brand_short}-{cluster_seg}"
         if series:
-            # Hash series too — Thai chars not ASCII-safe; keep code short+stable
-            series_seg = _subcat_to_code(series)[2:6]  # 4-char hex without 'SC' prefix
+            series_seg = _subcat_to_code(series)[2:6]  # 4-char hex
             family_code = f"{family_code}-S{series_seg}"
-        if color:
-            family_code = f"{family_code}-{color}"
 
         # Display name — sub_category + series suffix when both present
         sub_cats = [m['sub_category'] for m in members if m['sub_category']]
@@ -119,33 +118,33 @@ def main():
         else:
             display_name = first['product_name']
 
-        # Detect variation axes (color is now in the key, so it can't vary
-        # within a family)
+        # Detect variation axes — color now varies within a family
         sizes = {m['size'] or '' for m in members}
         packs = {m['packaging'] or '' for m in members}
+        colors = {m['color_code'] or '' for m in members}
         size_varies = len(sizes) > 1
         pack_varies = len(packs) > 1
+        color_varies = len(colors) > 1
 
-        if size_varies and pack_varies:
-            display_format = 'size_table'  # renderer handles size+pack as columns
-        elif size_varies:
+        # Display: size_table covers most cases; pack_variants only when ONLY pack varies
+        if size_varies or color_varies:
             display_format = 'size_table'
         elif pack_varies:
             display_format = 'pack_variants'
         else:
-            display_format = 'single'  # all identical structured cols (rare — usually duplicate)
+            display_format = 'single'
 
         rows.append({
             "proposed_family_code":  family_code,
             "proposed_display_name": display_name,
             "brand_short_code":      first['brand_short_code'],
             "brand_name":             first['brand_name'],
-            "cluster_key":           cluster_key,        # model or sub_category
+            "cluster_key":           cluster_key,
             "series":                series,
-            "color_code":            color,
             "sku_count":             len(members),
             "skus":                  ",".join(str(m['sku']) for m in sorted(members, key=lambda x: x['sku'])),
             "size_varies":           int(size_varies),
+            "color_varies":          int(color_varies),
             "pack_varies":           int(pack_varies),
             "proposed_display_format": display_format,
             "user_override_format":  "",
