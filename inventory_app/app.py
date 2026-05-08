@@ -1224,6 +1224,25 @@ def supplier_summary(supplier_name):
     return render_template('supplier_summary.html', data=data)
 
 
+@app.route('/photos/<path:filepath>')
+def serve_catalog_photo(filepath):
+    """Serve product photos from Design/Catalog/photos/.
+    Files live outside inventory_app/static so they're available to /catalog
+    without bloating the static dir or duplicating files.
+    """
+    if not session.get('role'):
+        abort(403)
+    photos_root = os.path.abspath(os.path.join(
+        os.path.dirname(__file__), '..', '..', 'Design', 'Catalog', 'photos'
+    ))
+    full = os.path.normpath(os.path.join(photos_root, filepath))
+    if not full.startswith(photos_root):
+        abort(403)  # path traversal attempt
+    if not os.path.isfile(full):
+        abort(404)
+    return send_file(full)
+
+
 @app.route('/catalog')
 def catalog_view():
     """Catalog page — print-friendly, group by category, family-aware layout.

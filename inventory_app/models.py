@@ -1,3 +1,4 @@
+import re
 import sqlite3
 
 from database import get_connection
@@ -3922,7 +3923,7 @@ def get_catalog_data(brand_filter=None, category_filter=None,
                   pf.display_name, p.sub_category, p.size, p.sku
     """, params).fetchall()
 
-    # Pull primary image per family + per sku
+    # Pull primary image per family + per sku from product_images (DB)
     image_rows = conn.execute("""
         SELECT family_id, sku_id, image_path
           FROM product_images
@@ -3937,6 +3938,43 @@ def get_catalog_data(brand_filter=None, category_filter=None,
             sku_images[r['sku_id']] = r['image_path']
 
     conn.close()
+
+    # Filesystem fallback — scan Design/Catalog/photos/products/ for images
+    # placed by match_and_copy_photos.py. Match by category_code/family_code
+    # path. Family-shared images (filename starts with family_code prefix)
+    # get used as the family hero; sku-specific images (sku_code prefix)
+    # override per SKU.
+    import os
+    PHOTOS_ROOT = os.path.abspath(os.path.join(
+        os.path.dirname(__file__), '..', '..', 'Design', 'Catalog', 'photos', 'products'
+    ))
+    fs_family_images = {}    # family_code → first image filename
+    fs_sku_images = {}       # sku_code → first image filename
+    if os.path.isdir(PHOTOS_ROOT):
+        for cat_dir in os.listdir(PHOTOS_ROOT):
+            cat_path = os.path.join(PHOTOS_ROOT, cat_dir)
+            if not os.path.isdir(cat_path):
+                continue
+            for family_dir in os.listdir(cat_path):
+                family_path = os.path.join(cat_path, family_dir)
+                if not os.path.isdir(family_path):
+                    continue
+                for fname in sorted(os.listdir(family_path)):
+                    if not fname.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                        continue
+                    rel_path = f"products/{cat_dir}/{family_dir}/{fname}"
+                    base = os.path.splitext(fname)[0]
+                    # Family-shared: filename starts with family_dir prefix
+                    if base.startswith(family_dir + "_"):
+                        if family_dir not in fs_family_images:
+                            fs_family_images[family_dir] = rel_path
+                    else:
+                        # SKU-specific: extract sku_code (everything before _auto_NN)
+                        m = re.match(r'^(.+?)_auto_\d+$', base)
+                        if m:
+                            sku_code_unsafe = m.group(1).replace("_", "/")  # reverse '/' sanitize
+                            if sku_code_unsafe not in fs_sku_images:
+                                fs_sku_images[sku_code_unsafe] = rel_path
 
     # Build cards: group by family_id; singletons each get their own card
     family_cards = {}      # family_id → card
@@ -3957,13 +3995,17 @@ def get_catalog_data(brand_filter=None, category_filter=None,
             'cost_price': r['cost_price'],
             'base_sell_price': r['base_sell_price'],
             'stock': r['stock'],
-            'image_path': sku_images.get(r['id']),
+            'image_path': sku_images.get(r['id']) or fs_sku_images.get(r['sku_code']),
         }
         if r['family_id']:
             if r['family_id'] not in family_cards:
+                # Resolve family image: DB → filesystem hero → first SKU image
+                fam_img = (family_images.get(r['family_id'])
+                           or fs_family_images.get(r['family_code']))
                 family_cards[r['family_id']] = {
                     'card_type': 'family',
                     'family_id': r['family_id'],
+                    'family_code': r['family_code'],
                     'display_name': r['family_display_name'] or r['sub_category'],
                     'display_format': r['display_format'] or 'single',
                     'catalogue_label': r['catalogue_label'],
@@ -3971,14 +4013,18 @@ def get_catalog_data(brand_filter=None, category_filter=None,
                     'is_own_brand': bool(r['is_own_brand']),
                     'category': r['category_name'] or '',
                     'sub_category': r['sub_category'],
-                    'image_path': family_images.get(r['family_id']),
+                    'image_path': fam_img,
                     'skus': [],
                 }
             family_cards[r['family_id']]['skus'].append(sku_data)
+            # If family had no image but a sku does, use sku's as family fallback
+            if not family_cards[r['family_id']]['image_path']:
+                family_cards[r['family_id']]['image_path'] = sku_data['image_path']
         else:
             singleton_cards.append({
                 'card_type': 'singleton',
                 'family_id': None,
+                'family_code': r['sku_code'],
                 'display_name': r['product_name'],
                 'display_format': 'single',
                 'catalogue_label': None,
@@ -3986,7 +4032,7 @@ def get_catalog_data(brand_filter=None, category_filter=None,
                 'is_own_brand': bool(r['is_own_brand']),
                 'category': r['category_name'] or 'อื่น ๆ',
                 'sub_category': r['sub_category'],
-                'image_path': sku_images.get(r['id']),
+                'image_path': sku_data['image_path'],
                 'skus': [sku_data],
             })
 
