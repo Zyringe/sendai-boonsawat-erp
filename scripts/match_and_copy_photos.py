@@ -217,7 +217,7 @@ def main():
         tokens, base = _tokenize_filename(ph.name)
         tokens["raw_base"] = base
 
-        # Build candidate set from model tokens + folder-hint products
+        # Build candidate set from model tokens
         cand_set = set()
         for tok in tokens["model_tokens"]:
             for p_row in by_model_token.get(tok, []):
@@ -226,6 +226,13 @@ def main():
         if folder_hint:
             for p_row in by_model_token.get(f"_cat_{folder_hint}", []):
                 cand_set.add(p_row["id"])
+
+        # HARD filter: when folder hint is set, only match products in that
+        # category. Prevents coincidental model-digit matches across categories
+        # (e.g. กันชน 760.png ≠ มือจับสแตนเลส #760). User caught 2026-05-08.
+        if folder_hint:
+            cand_set = {pid for pid in cand_set
+                        if (next((p for p in products if p["id"] == pid), {}) or {}).get("cat_code") == folder_hint}
 
         if not cand_set:
             unmatched.append({
