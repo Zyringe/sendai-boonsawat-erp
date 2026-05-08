@@ -51,7 +51,14 @@
         <tbody>
           {% for p in pending %}
           <tr>
-            <td class="fw-500">{{ p.product_name }}</td>
+            <td class="fw-500">
+              {{ p.product_name }}
+              {% if p.bsn_raw_name and p.bsn_raw_name != p.product_name %}
+              <div class="small text-subtle mt-1">
+                <span class="text-muted">BSN:</span> {{ p.bsn_raw_name }}
+              </div>
+              {% endif %}
+            </td>
             <td class="text-center"><span class="badge badge-warning font-mono">{{ p.bsn_unit }}</span></td>
             <td class="text-center"><span class="badge badge-info">{{ p.unit_type }}</span></td>
             <td class="text-center text-subtle">{{ p.row_count }}</td>
@@ -107,7 +114,14 @@
         {% for uc in existing %}
         <tr id="row-{{ uc.id }}">
           <td><span class="badge badge-gray">{{ uc.sku }}</span></td>
-          <td class="small">{{ uc.product_name }}</td>
+          <td class="small">
+            {{ uc.product_name }}
+            {% if uc.bsn_raw_name and uc.bsn_raw_name != uc.product_name %}
+            <div class="text-subtle mt-1" style="font-size:0.8em">
+              <span class="text-muted">BSN:</span> {{ uc.bsn_raw_name }}
+            </div>
+            {% endif %}
+          </td>
           <td class="text-center"><span class="badge badge-warning font-mono">{{ uc.bsn_unit }}</span></td>
           <td class="text-center"><span class="badge badge-info">{{ uc.unit_type }}</span></td>
           <td class="text-center text-subtle small">{{ uc.row_count }}</td>
