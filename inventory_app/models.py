@@ -635,18 +635,20 @@ def get_pending_unit_conversions(search=None):
     conn = get_connection()
     sql = """
         SELECT t.product_id, t.bsn_unit, p.product_name, p.unit_type,
-               t.row_count, t.example_doc
+               t.row_count, t.example_doc, t.bsn_raw_name
         FROM (
             SELECT product_id, unit AS bsn_unit,
                    COUNT(*) AS row_count,
-                   MIN(doc_no) AS example_doc
+                   MIN(doc_no) AS example_doc,
+                   MIN(NULLIF(product_name_raw, '')) AS bsn_raw_name
             FROM sales_transactions
             WHERE product_id IS NOT NULL AND synced_to_stock = 0
             GROUP BY product_id, unit
             UNION ALL
             SELECT product_id, unit AS bsn_unit,
                    COUNT(*) AS row_count,
-                   MIN(doc_no) AS example_doc
+                   MIN(doc_no) AS example_doc,
+                   MIN(NULLIF(product_name_raw, '')) AS bsn_raw_name
             FROM purchase_transactions
             WHERE product_id IS NOT NULL AND synced_to_stock = 0
             GROUP BY product_id, unit
@@ -746,16 +748,19 @@ def get_all_unit_conversions(search=None, page=1, per_page=50):
     sql = f"""
         SELECT uc.id, uc.product_id, uc.bsn_unit, uc.ratio,
                p.product_name, p.unit_type, p.sku,
-               COALESCE(s.cnt, 0) + COALESCE(pu.cnt, 0) AS row_count
+               COALESCE(s.cnt, 0) + COALESCE(pu.cnt, 0) AS row_count,
+               COALESCE(s.bsn_raw_name, pu.bsn_raw_name) AS bsn_raw_name
         FROM unit_conversions uc
         JOIN products p ON p.id = uc.product_id
         LEFT JOIN (
-            SELECT product_id, unit, COUNT(*) AS cnt
+            SELECT product_id, unit, COUNT(*) AS cnt,
+                   MIN(NULLIF(product_name_raw, '')) AS bsn_raw_name
             FROM sales_transactions
             GROUP BY product_id, unit
         ) s ON s.product_id = uc.product_id AND s.unit = uc.bsn_unit
         LEFT JOIN (
-            SELECT product_id, unit, COUNT(*) AS cnt
+            SELECT product_id, unit, COUNT(*) AS cnt,
+                   MIN(NULLIF(product_name_raw, '')) AS bsn_raw_name
             FROM purchase_transactions
             GROUP BY product_id, unit
         ) pu ON pu.product_id = uc.product_id AND pu.unit = uc.bsn_unit
@@ -3834,3 +3839,161 @@ def approve_pending_suggestion(suggestion_id: int, edits: dict, reviewer_id: int
         raise
     finally:
         conn.close()
+
+
+# ── Catalog data ─────────────────────────────────────────────────────────────
+
+def get_catalog_data(brand_filter=None, category_filter=None,
+                     own_brand_only=False, in_stock_only=False):
+    """Return catalog cards: list of dicts grouped by category, with families
+    and singletons properly merged. Each card has all fields needed for
+    catalog rendering (no further DB query needed in template).
+
+    Filters:
+      brand_filter:    brand_id list, or None for all
+      category_filter: categories.code list, or None for all
+      own_brand_only:  True → only Sendai/Golden Lion/A-SPEC
+      in_stock_only:   True → only SKUs with quantity > 0
+
+    Cards are grouped by category in returned shape:
+      {
+        category_name_th: [card1, card2, ...],
+        ...
+      }
+    Each card:
+      {
+        'card_type':       'family' | 'singleton',
+        'family_id':       int | None,
+        'display_name':    str,
+        'display_format':  str,
+        'catalogue_label': str | None,
+        'brand_name':      str,
+        'category':        str,
+        'is_own_brand':    bool,
+        'image_path':      str | None,  # primary image
+        'skus': [
+          {'sku', 'sku_code', 'product_name', 'series', 'size', 'color_th',
+           'color_code', 'packaging', 'condition', 'pack_variant',
+           'cost_price', 'base_sell_price', 'stock'},
+          ...
+        ],
+      }
+    """
+    conn = get_connection()
+
+    where = ["p.is_active = 1"]
+    params = []
+    if own_brand_only:
+        where.append("b.is_own_brand = 1")
+    if in_stock_only:
+        where.append("COALESCE(s.quantity, 0) > 0")
+    if brand_filter:
+        placeholders = ",".join("?" * len(brand_filter))
+        where.append(f"p.brand_id IN ({placeholders})")
+        params += list(brand_filter)
+    if category_filter:
+        placeholders = ",".join("?" * len(category_filter))
+        where.append(f"c.code IN ({placeholders})")
+        params += list(category_filter)
+
+    where_sql = " AND ".join(where)
+    rows = conn.execute(f"""
+        SELECT p.id, p.sku, p.sku_code, p.product_name, p.family_id,
+               p.series, p.model, p.size, p.color_code, p.packaging,
+               p.condition, p.pack_variant, p.sub_category,
+               p.base_sell_price, p.cost_price,
+               COALESCE(s.quantity, 0) AS stock,
+               b.id AS brand_id, b.name AS brand_name, b.is_own_brand,
+               b.sort_order AS brand_sort,
+               c.code AS category_code, c.name_th AS category_name,
+               c.short_code AS cat_short, c.sort_order AS cat_sort,
+               cf.name_th AS color_th,
+               pf.family_code, pf.display_name AS family_display_name,
+               pf.display_format, pf.catalogue_label
+          FROM products p
+          LEFT JOIN brands b ON b.id = p.brand_id
+          LEFT JOIN categories c ON c.id = p.category_id
+          LEFT JOIN color_finish_codes cf ON cf.code = p.color_code
+          LEFT JOIN stock_levels s ON s.product_id = p.id
+          LEFT JOIN product_families pf ON pf.id = p.family_id
+         WHERE {where_sql}
+         ORDER BY COALESCE(c.sort_order, 999), c.name_th,
+                  COALESCE(b.is_own_brand, 0) DESC, b.sort_order, b.name,
+                  pf.display_name, p.sub_category, p.size, p.sku
+    """, params).fetchall()
+
+    # Pull primary image per family + per sku
+    image_rows = conn.execute("""
+        SELECT family_id, sku_id, image_path
+          FROM product_images
+         ORDER BY family_id, COALESCE(sort_order, 999)
+    """).fetchall()
+    family_images = {}
+    sku_images = {}
+    for r in image_rows:
+        if r['family_id'] not in family_images:
+            family_images[r['family_id']] = r['image_path']
+        if r['sku_id'] and r['sku_id'] not in sku_images:
+            sku_images[r['sku_id']] = r['image_path']
+
+    conn.close()
+
+    # Build cards: group by family_id; singletons each get their own card
+    family_cards = {}      # family_id → card
+    singleton_cards = []   # list of cards
+    for r in rows:
+        sku_data = {
+            'sku': r['sku'],
+            'sku_code': r['sku_code'],
+            'product_name': r['product_name'],
+            'series': r['series'],
+            'model': r['model'],
+            'size': r['size'],
+            'color_th': r['color_th'],
+            'color_code': r['color_code'],
+            'packaging': r['packaging'],
+            'condition': r['condition'],
+            'pack_variant': r['pack_variant'],
+            'cost_price': r['cost_price'],
+            'base_sell_price': r['base_sell_price'],
+            'stock': r['stock'],
+            'image_path': sku_images.get(r['id']),
+        }
+        if r['family_id']:
+            if r['family_id'] not in family_cards:
+                family_cards[r['family_id']] = {
+                    'card_type': 'family',
+                    'family_id': r['family_id'],
+                    'display_name': r['family_display_name'] or r['sub_category'],
+                    'display_format': r['display_format'] or 'single',
+                    'catalogue_label': r['catalogue_label'],
+                    'brand_name': r['brand_name'] or '',
+                    'is_own_brand': bool(r['is_own_brand']),
+                    'category': r['category_name'] or '',
+                    'sub_category': r['sub_category'],
+                    'image_path': family_images.get(r['family_id']),
+                    'skus': [],
+                }
+            family_cards[r['family_id']]['skus'].append(sku_data)
+        else:
+            singleton_cards.append({
+                'card_type': 'singleton',
+                'family_id': None,
+                'display_name': r['product_name'],
+                'display_format': 'single',
+                'catalogue_label': None,
+                'brand_name': r['brand_name'] or '',
+                'is_own_brand': bool(r['is_own_brand']),
+                'category': r['category_name'] or 'อื่น ๆ',
+                'sub_category': r['sub_category'],
+                'image_path': sku_images.get(r['id']),
+                'skus': [sku_data],
+            })
+
+    # Group by category
+    by_cat = {}
+    for c in list(family_cards.values()) + singleton_cards:
+        cat = c['category'] or 'อื่น ๆ'
+        by_cat.setdefault(cat, []).append(c)
+
+    return by_cat
