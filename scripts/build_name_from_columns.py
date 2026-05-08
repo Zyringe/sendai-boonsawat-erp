@@ -70,6 +70,11 @@ def build(row: dict, color_lookup: dict | None = None,
           code_to_name: dict | None = None) -> str:
     cat = row["category"].strip()
     series = row["series"].strip()
+    # Normalize: strip 'รุ่น' prefix from series so 'รุ่นซอง' → 'ซอง',
+    # 'รุ่นแถมใบ' → 'แถมใบ'. Aligns CSV-edited series values with what the
+    # parser produces. (User caught this 2026-05-08 on sku=309/1693.)
+    if series.startswith("รุ่น"):
+        series = series[len("รุ่น"):].strip()
     brand = row["brand"].strip()
     model = row["model"].strip()
     size = row["size"].strip()
