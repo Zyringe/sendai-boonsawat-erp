@@ -59,7 +59,7 @@
     <table class="table table-mobile-cards mb-0">
       <thead>
         <tr>
-          <th style="width:70px">SKU</th>
+          <th style="width:200px; white-space:nowrap">SKU</th>
           <th>ชื่อสินค้า</th>
           <th class="text-center">หน่วย</th>
           <th class="text-end">ราคาขาย</th>
@@ -73,10 +73,10 @@
       <tbody>
         {% for p in products %}
         <tr {% if p.is_low %}class="row-low-stock"{% endif %}>
-          <td data-label="SKU" class="td-hide-mobile">
+          <td data-label="SKU" class="td-hide-mobile" style="white-space:nowrap">
             <span class="badge badge-gray font-mono">{{ p.sku }}</span>
             {% if p.sku_code %}
-            <div class="font-mono text-subtle small mt-1" style="font-size:.7rem">{{ p.sku_code }}</div>
+            <div class="font-mono text-subtle small mt-1" style="font-size:.7rem; white-space:nowrap">{{ p.sku_code }}</div>
             {% endif %}
           </td>
           <td class="td-primary">
