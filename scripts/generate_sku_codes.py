@@ -40,6 +40,17 @@ PACKAGING_SHORT = {
 }
 
 
+def _series_segment(s: str) -> str:
+    """ASCII: cleaned uppercase. Thai/mixed: S + 4-hex hash."""
+    if not s:
+        return ""
+    import hashlib
+    s = s.strip()
+    if s.isascii():
+        return re.sub(r"\s+", "", s).upper()
+    return "S" + hashlib.md5(s.encode("utf-8")).hexdigest()[:4].upper()
+
+
 def build_sku_code(p: dict) -> str:
     parts = []
     if p.get("cat_short_code"):
@@ -50,6 +61,10 @@ def build_sku_code(p: dict) -> str:
         parts.append(_norm_segment(p["model"]))
     if p.get("size"):
         parts.append(_norm_segment(p["size"]))
+    if p.get("series"):
+        seg = _series_segment(p["series"])
+        if seg:
+            parts.append(seg)
     if p.get("color_code"):
         parts.append(p["color_code"])
     if p.get("packaging"):
@@ -76,7 +91,7 @@ def main():
 
     rows = conn.execute("""
         SELECT p.id, p.sku, p.sku_code, p.sku_code_locked, p.model, p.size,
-               p.color_code, p.packaging, p.pack_variant,
+               p.series, p.color_code, p.packaging, p.pack_variant,
                b.short_code AS brand_short_code,
                c.short_code AS cat_short_code
           FROM products p

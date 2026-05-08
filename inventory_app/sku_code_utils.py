@@ -1,10 +1,11 @@
 """sku_code generation logic — shared between bulk script and Flask routes.
 
-Format: <CAT>-<BRAND>-<MODEL>-<SIZE>-<COLOR>-<PKG>[-<pack_variant>]
+Format: <CAT>-<BRAND>-<MODEL>-<SIZE>[-<SERIES>]-<COLOR>-<PKG>[-<pack_variant>]
         Fallback: INT-<sku> when nothing structured is available
 """
 from __future__ import annotations
 
+import hashlib
 import re
 
 
@@ -36,12 +37,26 @@ def _norm_segment(s: str) -> str:
     return s
 
 
+def _series_segment(s: str) -> str:
+    """Convert series value to a sku_code-safe segment.
+    ASCII: cleaned + uppercase (DOME, BRUSHNO.98, CSK).
+    Thai/mixed: 'S' + 4-hex hash (stable across runs, ASCII-safe).
+    """
+    if not s:
+        return ""
+    s = s.strip()
+    if s.isascii():
+        return re.sub(r"\s+", "", s).upper()
+    return "S" + hashlib.md5(s.encode("utf-8")).hexdigest()[:4].upper()
+
+
 def build_sku_code(p: dict) -> str:
     """Build sku_code from a dict-like row.
     Required keys: sku
     Optional keys (segments included when truthy):
-      cat_short_code, brand_short_code, model, size, color_code,
-      packaging (Thai value, looked up via PACKAGING_SHORT), pack_variant
+      cat_short_code, brand_short_code, model, size, series,
+      color_code, packaging (Thai value, looked up via PACKAGING_SHORT),
+      pack_variant
     """
     parts = []
     if p.get("cat_short_code"):
@@ -52,6 +67,10 @@ def build_sku_code(p: dict) -> str:
         parts.append(_norm_segment(p["model"]))
     if p.get("size"):
         parts.append(_norm_segment(p["size"]))
+    if p.get("series"):
+        seg = _series_segment(p["series"])
+        if seg:
+            parts.append(seg)
     if p.get("color_code"):
         parts.append(p["color_code"])
     if p.get("packaging"):
@@ -72,8 +91,8 @@ def regenerate_for_product(conn, product_id: int) -> tuple:
     (this helper does NOT check the lock — invoke at higher level).
     """
     row = conn.execute("""
-        SELECT p.id, p.sku, p.sku_code, p.model, p.size, p.color_code,
-               p.packaging, p.pack_variant,
+        SELECT p.id, p.sku, p.sku_code, p.model, p.size, p.series,
+               p.color_code, p.packaging, p.pack_variant,
                b.short_code AS brand_short_code,
                c.short_code AS cat_short_code
           FROM products p
