@@ -24,12 +24,12 @@
   display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px;
 }
 .cat-card-img {
-  width: 70px; height: 70px; flex-shrink: 0;
+  width: 100px; height: 100px; flex-shrink: 0;
   border: 1px solid #e5e7eb; border-radius: 6px; background: #f8fafc;
   display: flex; align-items: center; justify-content: center;
-  font-size: 1.5rem; color: #cbd5e1; overflow: hidden;
+  font-size: 2rem; color: #cbd5e1; overflow: hidden;
 }
-.cat-card-img img { width: 100%; height: 100%; object-fit: cover; }
+.cat-card-img img { width: 100%; height: 100%; object-fit: contain; background: white; }
 .cat-card-title { font-weight: 700; font-size: 0.95rem; line-height: 1.3; }
 .cat-card-meta { font-size: 0.78rem; color: var(--text-subtle); line-height: 1.4; margin-top: 2px; }
 .cat-card-label {
@@ -160,7 +160,7 @@
     <div class="cat-card-header">
       <div class="cat-card-img">
         {% if card.image_path %}
-        <img src="/static/catalog/{{ card.image_path }}" alt="">
+        <img src="{{ url_for('serve_catalog_photo', filepath=card.image_path) }}" alt="">
         {% else %}
         📦
         {% endif %}
