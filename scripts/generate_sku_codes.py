@@ -174,7 +174,7 @@ def main():
           FROM products
     """).fetchone()
     print(f"Coverage: {by_cov['with_code']}/{by_cov['total']} have sku_code "
-          f"({by_cov['fallback']} are INT-{r['sku']} fallback)")
+          f"({by_cov['fallback']} are INT-<sku> fallback)")
     conn.close()
 
 

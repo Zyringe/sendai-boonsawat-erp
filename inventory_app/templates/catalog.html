@@ -230,9 +230,10 @@
       </div>
 
     {% else %}
-      {# single (default) — 1 SKU per card #}
-      {% set s = card.skus[0] %}
-      <div class="d-flex justify-content-between align-items-center">
+      {# single / color_swatch / matrix / any other — render EVERY SKU
+         (one row each) so no variant is silently dropped #}
+      {% for s in card.skus %}
+      <div class="d-flex justify-content-between align-items-center{% if not loop.first %} mt-2 pt-2 border-top{% endif %}">
         <div>
           <div class="cat-card-skucode">{{ s.sku_code or '—' }}</div>
           <div class="cat-card-meta mt-1">
@@ -246,6 +247,7 @@
           <div class="cat-stock {% if s.stock <= 0 %}zero{% endif %}">stock {{ s.stock }}</div>
         </div>
       </div>
+      {% endfor %}
     {% endif %}
   </div>
   {% endfor %}
