@@ -403,10 +403,15 @@ def product_regen_sku_code(product_id):
         abort(403)
     import sku_code_utils
     conn = get_connection()
-    old, new = sku_code_utils.regenerate_for_product(conn, product_id)
-    if old is None:
+    # Explicit existence check — don't conflate "product missing" with a
+    # legitimately-NULL existing sku_code (regenerate_for_product returns
+    # old=None in BOTH cases; NULL is the feature's primary use case).
+    if conn.execute(
+        "SELECT 1 FROM products WHERE id = ?", (product_id,)
+    ).fetchone() is None:
         conn.close()
         abort(404)
+    old, new = sku_code_utils.regenerate_for_product(conn, product_id)
     # Reset lock flag — regen explicitly requested overrides any prior lock
     conn.execute(
         "UPDATE products SET sku_code_locked = 0 WHERE id = ?", (product_id,)

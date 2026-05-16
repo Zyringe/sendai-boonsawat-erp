@@ -3948,8 +3948,15 @@ def get_catalog_data(brand_filter=None, category_filter=None,
     PHOTOS_ROOT = os.path.abspath(os.path.join(
         os.path.dirname(__file__), '..', '..', 'Design', 'Catalog', 'photos', 'products'
     ))
-    fs_family_images = {}    # family_code → first image filename
-    fs_sku_images = {}       # sku_code → first image filename
+    fs_family_images = {}    # _safe(family_code) → first image filename
+    fs_sku_images = {}       # _safe(sku_code)    → first image filename
+
+    # Mirror scripts/match_and_copy_photos.py::_safe — the photo filename
+    # sanitizer is one-way (only '/' → '_'); '_' is a legal sku_code char,
+    # so the map is non-injective and CANNOT be reversed. Key the dicts by
+    # the sanitized form and apply the SAME forward transform at lookup.
+    def _safe(s):
+        return (s or "").replace("/", "_")
     if os.path.isdir(PHOTOS_ROOT):
         for cat_dir in os.listdir(PHOTOS_ROOT):
             cat_path = os.path.join(PHOTOS_ROOT, cat_dir)
@@ -3972,9 +3979,12 @@ def get_catalog_data(brand_filter=None, category_filter=None,
                         # SKU-specific: extract sku_code (everything before _auto_NN)
                         m = re.match(r'^(.+?)_auto_\d+$', base)
                         if m:
-                            sku_code_unsafe = m.group(1).replace("_", "/")  # reverse '/' sanitize
-                            if sku_code_unsafe not in fs_sku_images:
-                                fs_sku_images[sku_code_unsafe] = rel_path
+                            # m.group(1) is already _safe(sku_code) (the
+                            # filename stem); key by it directly — do NOT
+                            # reverse-map '_'→'/'.
+                            safe_key = m.group(1)
+                            if safe_key not in fs_sku_images:
+                                fs_sku_images[safe_key] = rel_path
 
     # Build cards: group by family_id; singletons each get their own card
     family_cards = {}      # family_id → card
@@ -3995,13 +4005,13 @@ def get_catalog_data(brand_filter=None, category_filter=None,
             'cost_price': r['cost_price'],
             'base_sell_price': r['base_sell_price'],
             'stock': r['stock'],
-            'image_path': sku_images.get(r['id']) or fs_sku_images.get(r['sku_code']),
+            'image_path': sku_images.get(r['id']) or fs_sku_images.get(_safe(r['sku_code'])),
         }
         if r['family_id']:
             if r['family_id'] not in family_cards:
                 # Resolve family image: DB → filesystem hero → first SKU image
                 fam_img = (family_images.get(r['family_id'])
-                           or fs_family_images.get(r['family_code']))
+                           or fs_family_images.get(_safe(r['family_code'])))
                 family_cards[r['family_id']] = {
                     'card_type': 'family',
                     'family_id': r['family_id'],

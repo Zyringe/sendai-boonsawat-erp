@@ -1236,8 +1236,14 @@ def serve_catalog_photo(filepath):
         os.path.dirname(__file__), '..', '..', 'Design', 'Catalog', 'photos'
     ))
     full = os.path.normpath(os.path.join(photos_root, filepath))
-    if not full.startswith(photos_root):
-        abort(403)  # path traversal attempt
+    # Separator-aware containment: a bare startswith would also admit sibling
+    # dirs sharing the prefix (e.g. ../photos_backup). commonpath compares
+    # whole path components.
+    try:
+        if os.path.commonpath((full, photos_root)) != photos_root:
+            abort(403)  # path traversal attempt
+    except ValueError:
+        abort(403)  # different drive / mixed abs-rel → reject
     if not os.path.isfile(full):
         abort(404)
     return send_file(full)
