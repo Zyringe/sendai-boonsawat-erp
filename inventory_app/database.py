@@ -364,8 +364,14 @@ def run_pending_migrations(conn, verbose=True):
             print(f"[migration] FAILED {filename}: {e}")
             raise
         duration_ms = int((time.time() - t0) * 1000)
+        # INSERT OR IGNORE (matches the bootstrap path): legacy migration
+        # files 025–052 self-insert their own applied_migrations row inside
+        # the script. On the pending path executescript runs that self-insert,
+        # so a plain INSERT here would hit the filename PRIMARY KEY and crash
+        # boot. OR IGNORE makes the runner's bookkeeping idempotent whether or
+        # not the migration self-recorded.
         conn.execute(
-            """INSERT INTO applied_migrations
+            """INSERT OR IGNORE INTO applied_migrations
                    (filename, applied_by, sha256, duration_ms)
                VALUES (?, 'auto', ?, ?)""",
             (filename, _file_sha256(path), duration_ms)
