@@ -1,6 +1,7 @@
 # Product Name Naming Rule
 
-> Locked 2026-05-05. ใช้กับสินค้าทุกชนิดในร้าน (own-brand + 3rd-party).
+> Locked 2026-05-05. ใช้กับ `products.product_name` (ชื่อไทย display) สำหรับสินค้าทุกชนิดในร้าน (own-brand + 3rd-party).
+> Companion doc: [`sku_code_naming_rule.md`](sku_code_naming_rule.md) (English-only identifier สำหรับ machine/integration)
 > ตั้งค่าครั้งเดียว ใช้ตลอด — ห้ามเปลี่ยนทุก quarter.
 
 ---
