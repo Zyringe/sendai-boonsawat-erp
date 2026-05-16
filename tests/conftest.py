@@ -65,16 +65,53 @@ def tmp_db_conn(tmp_db):
 @pytest.fixture
 def empty_db(tmp_path, monkeypatch):
     """
-    A fresh schema-only DB built via database.init_db().
-    Use when a test wants no real data.
+    A data-less DB carrying the FULL live schema (every table/index/trigger/
+    view, zero rows). Use when a test wants a clean slate.
+
+    NOT built by replaying migrations from empty. `database.init_db()` runs the
+    whole 001→053 chain with FK enforcement on, and several migrations seed
+    rows that depend on imported data — 014 `commission_assignments`→
+    `salespersons`, 018 `commission_product_overrides`→`products`
+    (hardcoded product_id=398), cascading to 019/020/023 — so a from-empty
+    replay raises `FOREIGN KEY constraint failed`. That path is unsupported
+    BY DESIGN: a fresh prod/Railway deploy bootstraps a *seeded* DB via
+    /bootstrap/upload-db and only then applies migrations (app.py:48-98). The
+    live DB's schema is the source of truth, so we clone the schema without
+    data. Do NOT revert this to init_db() — see tests/test_empty_db_fixture.py.
     """
+    if not os.path.exists(LIVE_DB):
+        pytest.skip(f"Live DB not found at {LIVE_DB} — skipping schema-clone fixture")
+
     db_path = tmp_path / "fresh.db"
+
+    src = sqlite3.connect(f"file:{LIVE_DB}?mode=ro", uri=True)
+    try:
+        # tables → indexes → triggers → views so dependencies exist in order
+        objects = src.execute(
+            """SELECT sql FROM sqlite_master
+                WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'
+                ORDER BY CASE type
+                    WHEN 'table' THEN 0 WHEN 'index' THEN 1
+                    WHEN 'trigger' THEN 2 WHEN 'view' THEN 3 ELSE 4 END"""
+        ).fetchall()
+    finally:
+        src.close()
+
+    dst = sqlite3.connect(str(db_path))
+    try:
+        dst.execute("PRAGMA foreign_keys = OFF")
+        for (sql,) in objects:
+            dst.execute(sql)
+        dst.commit()
+    finally:
+        dst.close()
+
     import config
     monkeypatch.setattr(config, 'DATABASE_PATH', str(db_path))
+    # database.py imports DATABASE_PATH at module load time — patch there too.
     import database
     monkeypatch.setattr(database, 'DATABASE_PATH', str(db_path))
 
-    database.init_db()
     return str(db_path)
 
 
